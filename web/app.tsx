@@ -60,14 +60,19 @@ const toVoiceOrbsState = (state: ActivityState) => ({
   idle: 'idle', thinking: 'thinking', working: 'speaking', waiting: 'listening', completed: 'idle', error: 'idle', disconnected: 'disabled',
 } as const)[state];
 
-const jarvisCustomStates: Record<Exclude<ActivityState, 'idle' | 'thinking' | 'completed'>, JarvisStateTarget> = {
+const jarvisStates: Record<ActivityState, JarvisStateTarget> = {
+  idle: { energy: .58, rotationSpeed: .28, particleSpeed: .32, shellRadius: .94, ringSpread: .76, filamentOpacity: .22, coreScale: .86, bloom: .38 },
+  thinking: { energy: 1.12, rotationSpeed: 1.42, particleSpeed: 1.18, shellRadius: 1.08, ringSpread: 1.04, filamentOpacity: .56, coreScale: 1.04, bloom: .82 },
   working: { energy: 1.55, rotationSpeed: 1.9, particleSpeed: 1.75, shellRadius: 1.12, ringSpread: 1.18, filamentOpacity: .72, coreScale: 1.18, bloom: 1.08 },
-  waiting: { energy: .62, rotationSpeed: .38, particleSpeed: .42, shellRadius: .96, ringSpread: .8, filamentOpacity: .27, coreScale: .86, bloom: .42 },
-  error: { energy: .9, rotationSpeed: .8, particleSpeed: .76, shellRadius: 1.02, ringSpread: .94, filamentOpacity: .42, coreScale: .98, bloom: .72 },
+  waiting: { energy: .48, rotationSpeed: .16, particleSpeed: .24, shellRadius: .9, ringSpread: 1.24, filamentOpacity: .18, coreScale: .8, bloom: .3 },
+  completed: { energy: 1.32, rotationSpeed: .62, particleSpeed: .92, shellRadius: 1.16, ringSpread: 1.3, filamentOpacity: .76, coreScale: 1.24, bloom: 1.2 },
+  error: { energy: 1.02, rotationSpeed: 1.08, particleSpeed: 1.28, shellRadius: 1.01, ringSpread: .72, filamentOpacity: .64, coreScale: 1.06, bloom: .94 },
   disconnected: { energy: .22, rotationSpeed: .16, particleSpeed: .14, shellRadius: .82, ringSpread: .62, filamentOpacity: .14, coreScale: .68, bloom: .2 },
 };
 
-const jarvisState = (state: ActivityState): JarvisState => ({ idle: 'idle', thinking: 'thinking', completed: 'success', ...jarvisCustomStates } as Record<ActivityState, JarvisState>)[state];
+const jarvisState = (state: ActivityState): JarvisState => jarvisStates[state];
+const jarvisBreathing = (state: ActivityState) => state === 'idle' || state === 'waiting';
+const jarvisBreathingIntensity = (state: ActivityState) => state === 'idle' ? .72 : .42;
 const mixHex = (from: string, to: string, amount: number) => `#${[0, 2, 4].map((offset) => Math.round(parseInt(from.slice(1 + offset, 3 + offset), 16) * (1 - amount) + parseInt(to.slice(1 + offset, 3 + offset), 16) * amount).toString(16).padStart(2, '0')).join('')}`;
 const darkenHex = (color: string, amount: number) => mixHex(color, '#000000', amount);
 const hexNumber = (color: string) => Number.parseInt(color.slice(1), 16);
@@ -93,8 +98,8 @@ function ParticleOrb({ state, colors, style, paused }: { state: ActivityState; c
   }, []);
   const palette = useMemo(() => jarvisPalette(colors), [colors.colorFrom, colors.colorTo]);
   return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role={style === 'jarvis' ? undefined : 'img'} aria-label={style === 'jarvis' ? undefined : `Orb is ${state}`}>
-    {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={340} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
-    {style === 'jarvis' && <Suspense fallback={<span className="jarvis-loading" aria-hidden="true" />}><JarvisOrb className="jarvis-orb" size="panel" state={jarvisState(state)} palette={palette} quality="auto" paused={paused || reducedMotion} interactive={false} breathing={state === 'idle'} ariaLabel={`Orb is ${state}`} /></Suspense>}
+    {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={600} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
+    {style === 'jarvis' && <Suspense fallback={<span className="jarvis-loading" aria-hidden="true" />}><JarvisOrb className="jarvis-orb" size="hero" state={jarvisState(state)} palette={palette} quality="auto" paused={paused || reducedMotion} interactive={false} breathing={jarvisBreathing(state)} breathingIntensity={jarvisBreathingIntensity(state)} ariaLabel={`Orb is ${state}`} /></Suspense>}
     {style === 'pulse' && <><span className="ring ring-a" /><span className="ring ring-b" /><span className="ring ring-c" /></>}
     {style === 'aurora' && <><span className="veil veil-a" /><span className="veil veil-b" /><span className="veil veil-c" /></>}
     {style !== 'particles' && style !== 'jarvis' && <span className="orb-core" />}
@@ -138,7 +143,7 @@ export function App() {
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
   const preview = settingsOpen ? draft : preferences;
   const name = !tokenAvailable ? 'Open with orb open' : !transportConnected ? 'Reconnecting' : snapshot.state;
-  return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}`}>
+  return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}${fullscreen ? ' fullscreen-stage' : ''}`}>
     <section className="stage" aria-live="polite">
       <header aria-hidden={uiHidden}><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => settingsOpen ? closeSettings() : openSettings()}>Settings</button></header>
       <div className="center"><ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} /><p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
