@@ -95,14 +95,18 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [hidden, setHidden] = useState(document.hidden);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(() => Boolean(document.fullscreenElement));
   const pane = useRef<HTMLDivElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const uiHidden = useAutoHide(pane, 5_000, settingsOpen);
   useEffect(() => { const sync = () => setHidden(document.hidden); document.addEventListener('visibilitychange', sync); return () => document.removeEventListener('visibilitychange', sync); }, []);
+  useEffect(() => { const sync = () => setFullscreen(Boolean(document.fullscreenElement)); document.addEventListener('fullscreenchange', sync); return () => document.removeEventListener('fullscreenchange', sync); }, []);
   const closeSettings = () => { setDraft(preferences); setSettingsOpen(false); settingsButton.current?.focus(); };
-  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && settingsOpen) closeSettings(); }; document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close); }, [preferences, settingsOpen]);
+  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && settingsOpen && !document.fullscreenElement) closeSettings(); }; document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close); }, [preferences, settingsOpen]);
   const openSettings = () => { setDraft(preferences); setSettingsOpen(true); };
   const applySettings = () => { setPreferences(draft); savePreferences(localStorage, draft); setSettingsOpen(false); settingsButton.current?.focus(); };
+  const fullscreenSupported = typeof document.documentElement.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function';
+  const toggleFullscreen = () => { if (fullscreenSupported) void (fullscreen ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); };
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
   const preview = settingsOpen ? draft : preferences;
   const name = !tokenAvailable ? 'Open with orb open' : !transportConnected ? 'Reconnecting' : snapshot.state;
@@ -118,6 +122,7 @@ export function App() {
       <ColorControl label="First color" value={draft.colorFrom} onChange={(colorFrom) => set({ colorFrom })} />
       <ColorControl label="Second color" value={draft.colorTo} onChange={(colorTo) => set({ colorTo })} />
       <button className="pause" onClick={() => setPaused((value) => !value)}>{paused ? 'Resume animation' : 'Pause animation'}</button>
+      <button className="fullscreen" aria-pressed={fullscreen} disabled={!fullscreenSupported} title={fullscreenSupported ? undefined : 'Fullscreen is unavailable in this browser'} onClick={toggleFullscreen}>{fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button>
       <p className="credit">Orb styles adapted from <a href="https://github.com/amunozdev/voiceorbs" target="_blank" rel="noreferrer">VoiceOrbs</a> (MIT).</p>
     </aside>
   </main>;
