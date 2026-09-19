@@ -100,7 +100,8 @@ export const createStateMix = (initial: OrbState = 'idle'): StateMix => {
   };
   weights[initial] = 1;
   const keys = Object.keys(weights) as OrbState[];
-  const update = (state: OrbState, dt: number, rate = 6): StateWeights => {
+  // 95% of a state change settles in about 0.85 seconds.
+  const update = (state: OrbState, dt: number, rate = 3.5): StateWeights => {
     let total = 0;
     for (const key of keys) {
       const target = key === state ? 1 : 0;
@@ -129,4 +130,3 @@ export const orbVars = ({
   if (colorTo) vars['--orb-color-to'] = colorTo;
   return vars as CSSProperties;
 };
-

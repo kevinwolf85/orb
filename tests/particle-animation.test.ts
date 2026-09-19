@@ -14,6 +14,12 @@ test('particle state transitions preserve normalized weights and settle on the n
   assert.equal(weights.idle, 0);
 });
 
+test('particle state transitions retain the outgoing motion during the visual blend', () => {
+  const weights = createStateMix('idle').update('thinking', 0.2);
+  assert.ok(weights.idle > 0.45);
+  assert.ok(weights.thinking < 0.55);
+});
+
 test('particle activity observer suspends offscreen or hidden work and removes listeners', () => {
   const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const previousObserver = Object.getOwnPropertyDescriptor(globalThis, 'IntersectionObserver');
