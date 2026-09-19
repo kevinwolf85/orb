@@ -15,9 +15,19 @@ export interface Snapshot {
   activeCount: number;
   staleCount: number;
   updatedAt: number;
+  sessions: SessionSummary[];
+}
+
+export interface SessionSummary {
+  key: number;
+  source: "codex" | "claude" | "mcp";
+  state: ActivityState;
+  updatedAt: number;
 }
 
 interface Session {
+  key: number;
+  source: "codex" | "claude" | "mcp";
   state: ActivityState;
   updatedAt: number;
   completedAt?: number;
@@ -36,6 +46,7 @@ export class ActivityStore {
   private readonly sessions = new Map<string, Session>();
   private readonly eventIds = new Set<string>();
   private lastUpdatedAt = 0;
+  private nextSessionKey = 0;
 
   report(event: ActivityEvent, now = Date.now()): boolean {
     const eventKey = `${event.sessionId}\u0000${event.eventId}`;
@@ -45,7 +56,14 @@ export class ActivityStore {
     let session = this.sessions.get(event.sessionId);
     if (!session) {
       if (this.sessions.size >= MAX_SESSIONS) this.sessions.delete(this.sessions.keys().next().value as string);
-      session = { state: "idle", updatedAt: now, operations: new Map(), endedOperations: new Set() };
+      session = {
+        key: ++this.nextSessionKey,
+        source: event.source ?? "mcp",
+        state: "idle",
+        updatedAt: now,
+        operations: new Map(),
+        endedOperations: new Set(),
+      };
       this.sessions.set(event.sessionId, session);
     }
     if (now - session.updatedAt > STALE_MS) {
@@ -54,6 +72,7 @@ export class ActivityStore {
     }
     const ignoredStart = event.operationId && event.phase === "start" && session.endedOperations.has(event.operationId);
     if (ignoredStart) return false;
+    session.source = event.source ?? session.source;
     session.updatedAt = now;
     session.state = event.state;
     if (event.operationId && event.phase === "start") {
@@ -83,14 +102,18 @@ export class ActivityStore {
     let staleCount = 0;
     let activeCount = 0;
     const states: ActivityState[] = [];
+    const summaries: SessionSummary[] = [];
     for (const session of this.sessions.values()) {
       const stale = now - session.updatedAt > STALE_MS;
       if (stale) { staleCount++; continue; }
       const operationStates = [...session.operations.values()];
-      const state = operationStates.length ? best([session.state, ...operationStates]) : session.state;
+      let state = operationStates.length ? best([session.state, ...operationStates]) : session.state;
+      if (state === "completed" && session.completedAt !== undefined && now - session.completedAt > COMPLETION_MS) state = "idle";
       if (["waiting", "working", "thinking"].includes(state)) activeCount++;
-      if (state === "completed" && session.completedAt !== undefined && now - session.completedAt > COMPLETION_MS) states.push("idle");
-      else states.push(state);
+      states.push(state);
+      if (["working", "thinking", "waiting", "error", "completed"].includes(state)) {
+        summaries.push({ key: session.key, source: session.source, state, updatedAt: session.updatedAt });
+      }
     }
     return {
       state: states.length ? best(states) : "idle",
@@ -98,6 +121,7 @@ export class ActivityStore {
       activeCount,
       staleCount,
       updatedAt: this.lastUpdatedAt,
+      sessions: summaries,
     };
   }
 }
