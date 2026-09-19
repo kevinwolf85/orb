@@ -19,7 +19,7 @@ const activitySchema = {
 };
 
 export async function runMcp(): Promise<void> {
-  const server = new Server({ name: "orb", version: "0.1.2" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "orb", version: "0.1.3" }, { capabilities: { tools: {} } });
   server.setRequestHandler(z.object({ method: z.literal("tools/list") }), async () => ({ tools: [
     { name: "open_orb", description: "Open the local Orb activity display.", inputSchema: { type: "object", properties: {} } },
     { name: "get_orb_status", description: "Read Orb status without starting the service.", inputSchema: { type: "object", properties: {} } },
