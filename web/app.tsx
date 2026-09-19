@@ -138,10 +138,11 @@ export function App() {
     return () => media.removeEventListener('change', update);
   }, []);
   useEffect(() => { const sync = () => setFullscreen(Boolean(document.fullscreenElement)); document.addEventListener('fullscreenchange', sync); return () => document.removeEventListener('fullscreenchange', sync); }, []);
-  const closeSettings = () => { setDraft(preferences); setSettingsOpen(false); settingsButton.current?.focus(); };
+  const finishSettings = () => { setPreviewMode((current) => stopPreview(current.state)); setSettingsOpen(false); settingsButton.current?.focus(); };
+  const closeSettings = () => { setDraft(preferences); finishSettings(); };
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && settingsOpen && !document.fullscreenElement) closeSettings(); }; document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close); }, [preferences, settingsOpen]);
   const openSettings = () => { setDraft(preferences); setSettingsOpen(true); };
-  const applySettings = () => { setPreferences(draft); savePreferences(localStorage, draft); setSettingsOpen(false); settingsButton.current?.focus(); };
+  const applySettings = () => { setPreferences(draft); savePreferences(localStorage, draft); finishSettings(); };
   const fullscreenSupported = typeof document.documentElement.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function';
   const toggleFullscreen = () => { if (fullscreenSupported) void (fullscreen ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); };
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
