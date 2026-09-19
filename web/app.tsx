@@ -9,8 +9,9 @@ import { useAutoHide } from './use-auto-hide';
 const JarvisOrb = lazy(async () => ({ default: (await import('jarvis-ai-web-animation')).JarvisOrb }));
 
 type ActivityState = 'idle' | 'thinking' | 'working' | 'waiting' | 'completed' | 'error' | 'disconnected';
-type Snapshot = { state: ActivityState; sessionCount: number; activeCount: number; staleCount: number; updatedAt: number };
-const blankSnapshot: Snapshot = { state: 'disconnected', sessionCount: 0, activeCount: 0, staleCount: 0, updatedAt: 0 };
+type SessionSummary = { key: number; source: 'codex' | 'claude' | 'mcp'; state: ActivityState; updatedAt: number };
+type Snapshot = { state: ActivityState; sessionCount: number; activeCount: number; staleCount: number; updatedAt: number; sessions: SessionSummary[] };
+const blankSnapshot: Snapshot = { state: 'disconnected', sessionCount: 0, activeCount: 0, staleCount: 0, updatedAt: 0, sessions: [] };
 const TOKEN_KEY = 'orb-token';
 
 function bootToken(): string | null {
@@ -128,6 +129,7 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [hidden, setHidden] = useState(document.hidden);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [page, setPage] = useState(0);
   const [fullscreen, setFullscreen] = useState(() => Boolean(document.fullscreenElement));
   const pane = useRef<HTMLDivElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -142,11 +144,15 @@ export function App() {
   const toggleFullscreen = () => { if (fullscreenSupported) void (fullscreen ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); };
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
   const preview = settingsOpen ? draft : preferences;
+  const sessions = snapshot.sessions ?? [];
+  const pageCount = Math.max(1, Math.ceil(sessions.length / 4));
+  const visible = sessions.slice(page * 4, page * 4 + 4);
+  useEffect(() => setPage((current) => Math.min(current, pageCount - 1)), [pageCount]);
   const name = !tokenAvailable ? 'Open with orb open' : !transportConnected ? 'Reconnecting' : snapshot.state;
   return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}${fullscreen ? ' fullscreen-stage' : ''}`}>
     <section className="stage" aria-live="polite">
       <header aria-hidden={uiHidden}><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => settingsOpen ? closeSettings() : openSettings()}>Settings</button></header>
-      <div className="center"><ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} /><p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
+      <div className="center"><div className="orb-grid">{visible.map((session) => <figure className="session-orb" key={session.key}><ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} /><figcaption>{`${session.source[0].toUpperCase()}${session.source.slice(1)} ${session.key} · ${session.state[0].toUpperCase()}${session.state.slice(1)}`}</figcaption></figure>)}{!sessions.length && <ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} />}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page + 1} of {pageCount}</span><button disabled={page + 1 === pageCount} onClick={() => setPage(page + 1)}>Next</button></nav>}<p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
       <footer aria-hidden={uiHidden}>{snapshot.sessionCount} observed sessions{snapshot.staleCount ? ` · ${snapshot.staleCount} stale` : ''} · updated {snapshot.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now'}</footer>
     </section>
     <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={!settingsOpen || uiHidden}>
