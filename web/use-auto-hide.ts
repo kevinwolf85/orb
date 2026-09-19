@@ -4,10 +4,14 @@ export const hasProtectedFocus = (element: Element | null, activeElement: Elemen
   element && activeElement && element.contains(activeElement) && activeElement.matches('input, textarea, select, [contenteditable="true"], [role="slider"]'),
 );
 
-export function useAutoHide(protectedElement: RefObject<Element | null>, delay = 5_000) {
+export function useAutoHide(protectedElement: RefObject<Element | null>, delay = 5_000, suspended = false) {
   const [uiHidden, setUiHidden] = useState(false);
 
   useEffect(() => {
+    if (suspended) {
+      setUiHidden(false);
+      return;
+    }
     let timer: number | undefined;
     const schedule = () => {
       if (timer) clearTimeout(timer);
@@ -33,7 +37,7 @@ export function useAutoHide(protectedElement: RefObject<Element | null>, delay =
       document.removeEventListener('focusin', reveal);
       document.removeEventListener('focusout', schedule);
     };
-  }, [delay, protectedElement]);
+  }, [delay, protectedElement, suspended]);
 
   return uiHidden;
 }

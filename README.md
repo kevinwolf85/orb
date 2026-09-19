@@ -1,12 +1,12 @@
 # Orb
 
-Orb is a local browser activity light for coding agents. It exposes a local authenticated browser view, a stdio MCP server, and optional lifecycle hooks for Codex and Claude Code. It stores only session IDs, event IDs, state, and source; it does not collect prompts, tool arguments, tool output, transcripts, or model messages.
+Orb is a local browser activity light for coding agents. It provides an authenticated local browser view, a stdio MCP server, and optional lifecycle hooks for Codex and Claude Code. Source: [github.com/kevinwolf85/orb](https://github.com/kevinwolf85/orb/tree/main).
 
-Orb is MIT-licensed and is not published to npm yet. Its MCP implementation uses the [Model Context Protocol TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), which is also MIT-licensed; see `THIRD_PARTY_NOTICES.md` for the complete attribution.
+Orb is MIT-licensed and is **not published to npm**. Its MCP implementation uses the MIT-licensed [Model Context Protocol TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for complete attribution.
 
 ## Install
 
-Requires Node.js 22 or newer. From a clean checkout, build a local package before installing it:
+Node.js 22 or newer is required. Install from a GitHub checkout as a local package:
 
 ```sh
 git clone git@github.com:kevinwolf85/orb.git
@@ -16,7 +16,7 @@ npm pack
 npm install -g ./kevinwolf85-orb-*.tgz
 ```
 
-For local development, skip the global install and build in place:
+For development, build and run directly from the checkout:
 
 ```sh
 npm ci
@@ -24,52 +24,42 @@ npm run build
 node dist/server/cli.js open
 ```
 
-The hook installer supports macOS and Linux shell environments. Windows hook installation is not supported yet because the generated command uses POSIX shell quoting.
-
-## Commands and hooks
+## Commands
 
 ```sh
-orb                 # stdio MCP server (same as `orb mcp`)
-orb serve           # local browser service
-orb open            # start/open the browser view
-orb setup codex     # explicitly install Codex hooks
-orb setup claude    # explicitly install Claude Code hooks
-orb remove codex    # remove only Orb's Codex entries
-orb remove claude   # remove only Orb's Claude entries
-orb doctor          # report service and hook installation status
+orb                 # stdio MCP server; same as `orb mcp`
+orb serve           # start the local browser service
+orb open            # start the service if needed and open the browser view
+orb doctor          # show service and hook-installation status
+orb setup codex     # add Orb's Codex lifecycle hooks
+orb setup claude    # add Orb's Claude Code lifecycle hooks
+orb remove codex    # remove only Orb's Codex hooks
+orb remove claude   # remove only Orb's Claude Code hooks
 ```
 
-`setup` never runs automatically. It atomically merges hooks into `~/.codex/hooks.json` or `~/.claude/settings.json`, retains unrelated entries, and creates one adjacent `.orb.bak` before its first change. `ORB_HOME` changes the local cache location; otherwise Orb uses `$XDG_CACHE_HOME/orb` or `~/.cache/orb`.
+`ORB_HOME` changes Orb's local runtime location. Otherwise it uses `$XDG_CACHE_HOME/orb` or `~/.cache/orb`.
 
-Installed hooks run synchronously with a three-second host timeout. Orb itself has a one-second fail-open deadline, writes no hook stdout, and never starts the service from a hook report. Codex events are `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Stop`, and `Interrupt`; Claude additionally uses `PostToolUseFailure` and `StopFailure`.
+## MCP and hooks
 
-The mapping is: session start → `idle`; submitted prompt → `thinking`; permission request → `waiting`; tool start → tracked `working` operation; tool end → `thinking` and removes that operation; stop → `completed`; failure → `error`; session end or interrupt → `disconnected`. Tool operations use the vendor tool-call ID, so concurrent calls aggregate correctly.
+Configure the installed `orb` executable as a stdio MCP server in the client you use. It exposes `open_orb`, `get_orb_status`, and `report_activity`. `report_activity` accepts only IDs and state; do not include prompts, code, or tool output.
 
-## MCP
+Hooks are optional and are never installed automatically. `orb setup codex` updates `~/.codex/hooks.json`; `orb setup claude` updates `~/.claude/settings.json`. Setup retains unrelated hook entries and creates one adjacent `.orb.bak` before the first change. Use `orb doctor` to inspect the result.
 
-MCP use is model-driven: configure the server, then the model must call a tool. Add Orb through the normal client configuration.
+Hook configuration formats and event support remain client-dependent. Orb installs its supported entries, but cannot guarantee that a given Codex or Claude Code version will execute every lifecycle event. Hook installation currently supports macOS and Linux shell environments; Windows is not supported because the generated command uses POSIX shell quoting.
 
-Codex `config.toml`:
+Hooks report session start/end, prompts, permissions, tool start/end, stops, and interrupts; Claude Code also has failure events. Reporting is fail-open, writes no hook stdout, has a one-second Orb deadline, and never starts the service from a hook report.
 
-```toml
-[mcp_servers.orb]
-command = "orb"
-args = ["mcp"]
-```
+## Browser controls
 
-Claude `settings.json`:
+The browser view shows aggregate agent state and active sessions. The Settings toggle is available on desktop and mobile. Open it to choose particle, pulse, or aurora styles; set two colors with the wheel, sliders, or a hex value; reset the draft; or pause animation. Changes preview immediately, but **Apply** is required to save them in browser local storage and close the panel. **Close**, toggling Settings off, or Escape discards the draft.
 
-```json
-{ "mcpServers": { "orb": { "command": "orb", "args": ["mcp"] } } }
-```
+The chrome automatically hides after five seconds without input. Moving or pressing the pointer, touching, typing, or focusing the view reveals it. An open Settings panel freezes auto-hide and stays visible. Particle animation respects the browser's reduced-motion preference.
 
-Tools are `open_orb()`; `get_orb_status()`; and `report_activity({ sessionId, eventId, state, operationId?, phase? })`. The first three fields are required and IDs are 1–128 characters. `state` is one of `idle`, `thinking`, `working`, `waiting`, `completed`, `error`, or `disconnected`; `phase` is `start` or `end`. MCP reports are attributed as `mcp`.
+## Privacy and limits
 
-## Display and lifecycle
+Orb stores only session IDs, event IDs, state, operation IDs, and source. It does not collect prompts, tool arguments, tool output, transcripts, or model messages. The local API is authenticated; its access token is removed from the URL fragment after startup and kept in session storage.
 
-The display offers a color wheel, brightness control, direct hex entry, and reset. Appearance preferences persist locally in the browser. Multiple sessions aggregate with priority `waiting`, `error`, `working`, `thinking`, `completed`, `idle`, then `disconnected`. Completed state remains visible for 15 seconds; sessions are stale after five minutes and do not count as active.
-
-The browser API requires a bearer token. The token is placed in the initial URL fragment, cleared after boot, and retained only in browser session storage. Treat anyone who can access your local account or configuration as trusted to see activity metadata. Orb shows lifecycle activity only; it does not establish code authorship, approval, or ownership.
+Orb is an activity indicator, not an audit log or guaranteed record of agent execution. The browser state can be stale or disconnected, and skipped hooks, client-version differences, or a closed local service can leave activity unreported.
 
 ## Development checks
 
@@ -77,5 +67,5 @@ The browser API requires a bearer token. The token is placed in the initial URL 
 npm run typecheck
 npm test
 npm run build
-node tests/smoke-package.mjs
+npm run test:smoke
 ```
