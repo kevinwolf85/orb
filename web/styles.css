@@ -13,7 +13,7 @@ header, footer, .settings-title, .control-head { display: flex; align-items: cen
 header, footer { justify-content: flex-end; }
 .settings-title, .control-head { justify-content: space-between; }
 .settings-toggle { display: block; padding: 8px 11px; border: 1px solid #343646; border-radius: 7px; background: #171824; color: #e9eaf3; font-size: 12px; }
-.center { min-width: 0; min-height: 0; display: grid; justify-items: center; align-content: center; gap: 36px; }
+.center { min-width: 0; min-height: 0; display: grid; justify-items: center; align-content: safe center; gap: 36px; overflow-y: auto; }
 .status { margin: 0; display: grid; gap: 8px; text-align: center; text-transform: capitalize; }
 .status b { font-size: 20px; letter-spacing: -.04em; }.status span, footer { color: #9b9dac; font: 13px ui-monospace, SFMono-Regular, monospace; }
 .orb { --from: #79e6ff; --to: #9b7bff; position: relative; width: min(600px, 58dvh, 100%); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; isolation: isolate; transition: filter .75s ease, --ring-rate .75s ease, --veil-rate .75s ease, --core-rate .75s ease; }
