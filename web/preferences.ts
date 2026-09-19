@@ -1,4 +1,4 @@
-export type OrbStyle = 'particles' | 'pulse' | 'aurora';
+export type OrbStyle = 'particles' | 'pulse' | 'aurora' | 'jarvis';
 
 export type Preferences = {
   colorFrom: string;
@@ -26,7 +26,7 @@ export function sanitizePreferences(value: unknown): Preferences {
   return {
     colorFrom: normalizeColor(candidate?.colorFrom ?? '', defaults.colorFrom),
     colorTo: normalizeColor(candidate?.colorTo ?? '', defaults.colorTo),
-    style: candidate?.style === 'pulse' || candidate?.style === 'aurora' || candidate?.style === 'particles'
+    style: candidate?.style === 'pulse' || candidate?.style === 'aurora' || candidate?.style === 'particles' || candidate?.style === 'jarvis'
       ? candidate.style
       : defaults.style,
   };

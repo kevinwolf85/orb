@@ -1,9 +1,12 @@
 import Wheel from '@uiw/react-color-wheel';
 import { hexToHsva, hsvaToHex, type HsvaColor } from '@uiw/color-convert';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import type { JarvisPaletteValues, JarvisState, JarvisStateTarget } from 'jarvis-ai-web-animation';
 import { defaults, loadPreferences, normalizeColor, savePreferences, type OrbStyle, type Preferences } from './preferences';
 import { ParticlesOrb } from './particles-orb';
 import { useAutoHide } from './use-auto-hide';
+
+const JarvisOrb = lazy(async () => ({ default: (await import('jarvis-ai-web-animation')).JarvisOrb }));
 
 type ActivityState = 'idle' | 'thinking' | 'working' | 'waiting' | 'completed' | 'error' | 'disconnected';
 type Snapshot = { state: ActivityState; sessionCount: number; activeCount: number; staleCount: number; updatedAt: number };
@@ -57,6 +60,29 @@ const toVoiceOrbsState = (state: ActivityState) => ({
   idle: 'idle', thinking: 'thinking', working: 'speaking', waiting: 'listening', completed: 'idle', error: 'idle', disconnected: 'disabled',
 } as const)[state];
 
+const jarvisCustomStates: Record<Exclude<ActivityState, 'idle' | 'thinking' | 'completed'>, JarvisStateTarget> = {
+  working: { energy: 1.55, rotationSpeed: 1.9, particleSpeed: 1.75, shellRadius: 1.12, ringSpread: 1.18, filamentOpacity: .72, coreScale: 1.18, bloom: 1.08 },
+  waiting: { energy: .62, rotationSpeed: .38, particleSpeed: .42, shellRadius: .96, ringSpread: .8, filamentOpacity: .27, coreScale: .86, bloom: .42 },
+  error: { energy: .9, rotationSpeed: .8, particleSpeed: .76, shellRadius: 1.02, ringSpread: .94, filamentOpacity: .42, coreScale: .98, bloom: .72 },
+  disconnected: { energy: .22, rotationSpeed: .16, particleSpeed: .14, shellRadius: .82, ringSpread: .62, filamentOpacity: .14, coreScale: .68, bloom: .2 },
+};
+
+const jarvisState = (state: ActivityState): JarvisState => ({ idle: 'idle', thinking: 'thinking', completed: 'success', ...jarvisCustomStates } as Record<ActivityState, JarvisState>)[state];
+const mixHex = (from: string, to: string, amount: number) => `#${[0, 2, 4].map((offset) => Math.round(parseInt(from.slice(1 + offset, 3 + offset), 16) * (1 - amount) + parseInt(to.slice(1 + offset, 3 + offset), 16) * amount).toString(16).padStart(2, '0')).join('')}`;
+const darkenHex = (color: string, amount: number) => mixHex(color, '#000000', amount);
+const hexNumber = (color: string) => Number.parseInt(color.slice(1), 16);
+
+function jarvisPalette({ colorFrom, colorTo }: Preferences): JarvisPaletteValues {
+  const core = mixHex(colorFrom, '#ffffff', .34);
+  const secondary = mixHex(colorFrom, colorTo, .46);
+  const tertiary = mixHex(colorFrom, colorTo, .78);
+  const deep = darkenHex(tertiary, .68);
+  return {
+    core: hexNumber(core), primary: hexNumber(colorFrom), secondary: hexNumber(secondary), tertiary: hexNumber(tertiary), deep: hexNumber(deep),
+    fallback: `radial-gradient(circle at 50% 50%, ${core} 0%, ${colorFrom} 20%, ${secondary} 43%, ${deep} 72%, transparent 84%)`,
+  };
+}
+
 function ParticleOrb({ state, colors, style, paused }: { state: ActivityState; colors: Preferences; style: OrbStyle; paused: boolean }) {
   const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   useEffect(() => {
@@ -65,11 +91,13 @@ function ParticleOrb({ state, colors, style, paused }: { state: ActivityState; c
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, []);
-  return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role="img" aria-label={`Orb is ${state}`}>
+  const palette = useMemo(() => jarvisPalette(colors), [colors.colorFrom, colors.colorTo]);
+  return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role={style === 'jarvis' ? undefined : 'img'} aria-label={style === 'jarvis' ? undefined : `Orb is ${state}`}>
     {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={340} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
+    {style === 'jarvis' && <Suspense fallback={<span className="jarvis-loading" aria-hidden="true" />}><JarvisOrb className="jarvis-orb" size="panel" state={jarvisState(state)} palette={palette} quality="auto" paused={paused || reducedMotion} interactive={false} breathing={state === 'idle'} ariaLabel={`Orb is ${state}`} /></Suspense>}
     {style === 'pulse' && <><span className="ring ring-a" /><span className="ring ring-b" /><span className="ring ring-c" /></>}
     {style === 'aurora' && <><span className="veil veil-a" /><span className="veil veil-b" /><span className="veil veil-c" /></>}
-    {style !== 'particles' && <span className="orb-core" />}
+    {style !== 'particles' && style !== 'jarvis' && <span className="orb-core" />}
   </div>;
 }
 
@@ -118,7 +146,7 @@ export function App() {
     </section>
     <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={!settingsOpen || uiHidden}>
       <div className="settings-title"><div><span className="eyebrow">Appearance</span><h1>Make it yours</h1></div><div className="settings-actions"><button onClick={() => setDraft({ ...defaults, style: draft.style })}>Reset</button><button onClick={applySettings}>Apply</button><button className="close-settings" onClick={closeSettings}>Close</button></div></div>
-      <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={draft.style === style} className={draft.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
+      <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora', 'jarvis'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={draft.style === style} className={draft.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
       <ColorControl label="First color" value={draft.colorFrom} onChange={(colorFrom) => set({ colorFrom })} />
       <ColorControl label="Second color" value={draft.colorTo} onChange={(colorTo) => set({ colorTo })} />
       <button className="pause" onClick={() => setPaused((value) => !value)}>{paused ? 'Resume animation' : 'Pause animation'}</button>

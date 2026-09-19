@@ -5,6 +5,7 @@ import { hexToHsva, hsvaToHex } from '@uiw/color-convert';
 
 test('preferences accept valid color/style values', () => {
   assert.deepEqual(sanitizePreferences({ colorFrom: '#ABCDEF', colorTo: '#012345', style: 'aurora' }), { colorFrom: '#abcdef', colorTo: '#012345', style: 'aurora' });
+  assert.equal(sanitizePreferences({ style: 'jarvis' }).style, 'jarvis');
 });
 
 test('preferences fall back for malformed values', () => {
