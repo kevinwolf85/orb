@@ -1,6 +1,6 @@
 {
   "name": "@kevinwolf85/orb",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "An expressive browser companion for coding agents, powered by MCP and lifecycle hooks.",
   "type": "module",
   "license": "MIT",
