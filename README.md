@@ -53,7 +53,7 @@ Hooks report session start/end, prompts, permissions, tool start/end, stops, and
 
 The browser view shows aggregate agent state and active sessions. The Settings toggle is available on desktop and mobile. Open it to choose Particles, Pulse, Aurora, or the Three.js-based Jarvis style; set two colors with the wheel, sliders, or a hex value; reset the draft; pause animation; or enter fullscreen. The Jarvis style follows the same activity states and selected colors. Changes preview immediately, but **Apply** is required to save them in browser local storage and close the panel. **Close**, toggling Settings off, or Escape discards the draft. Fullscreen can be exited with the same button or the browser's Escape key.
 
-Each active session gets its own orb. The view shows four session orbs at a time, with Previous and Next controls when more sessions are available. Settings also includes **Preview Mode**: start or stop the preview and select its state. Preview cycles through states while running, but it never reports activity or changes live session data.
+Each active session gets its own orb. The view shows four session orbs at a time, with Previous and Next controls when more sessions are available. Settings also includes **Preview Mode**: start or stop the preview and select its state. Preview cycles through states while running, and pauses when the tab is hidden, animation is paused, or reduced motion is enabled; it never reports activity or changes live session data.
 
 The chrome automatically hides after five seconds without input. Moving or pressing the pointer, touching, typing, or focusing the view reveals it. An open Settings panel freezes auto-hide and stays visible. Particle animation respects the browser's reduced-motion preference.
 
