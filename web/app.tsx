@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSPropertie
 import type { JarvisPaletteValues, JarvisState, JarvisStateTarget } from 'jarvis-ai-web-animation';
 import { defaults, loadPreferences, normalizeColor, savePreferences, type OrbStyle, type Preferences } from './preferences';
 import { ParticlesOrb } from './particles-orb';
+import { nextPreviewState, previewStates, type PreviewState } from './preview';
 import { useAutoHide } from './use-auto-hide';
 
 const JarvisOrb = lazy(async () => ({ default: (await import('jarvis-ai-web-animation')).JarvisOrb }));
@@ -89,14 +90,7 @@ function jarvisPalette({ colorFrom, colorTo }: Preferences): JarvisPaletteValues
   };
 }
 
-function ParticleOrb({ state, colors, style, paused }: { state: ActivityState; colors: Preferences; style: OrbStyle; paused: boolean }) {
-  const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
-  useEffect(() => {
-    const media = matchMedia('(prefers-reduced-motion: reduce)');
-    const update = () => setReducedMotion(media.matches);
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
+function ParticleOrb({ state, colors, style, paused, reducedMotion }: { state: ActivityState; colors: Preferences; style: OrbStyle; paused: boolean; reducedMotion: boolean }) {
   const palette = useMemo(() => jarvisPalette(colors), [colors.colorFrom, colors.colorTo]);
   return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role={style === 'jarvis' ? undefined : 'img'} aria-label={style === 'jarvis' ? undefined : `Orb is ${state}`}>
     {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={600} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
@@ -129,12 +123,21 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [hidden, setHidden] = useState(document.hidden);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  const [previewState, setPreviewState] = useState<PreviewState>('idle');
+  const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [page, setPage] = useState(0);
   const [fullscreen, setFullscreen] = useState(() => Boolean(document.fullscreenElement));
   const pane = useRef<HTMLDivElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const uiHidden = useAutoHide(pane, 5_000, settingsOpen);
   useEffect(() => { const sync = () => setHidden(document.hidden); document.addEventListener('visibilitychange', sync); return () => document.removeEventListener('visibilitychange', sync); }, []);
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   useEffect(() => { const sync = () => setFullscreen(Boolean(document.fullscreenElement)); document.addEventListener('fullscreenchange', sync); return () => document.removeEventListener('fullscreenchange', sync); }, []);
   const closeSettings = () => { setDraft(preferences); setSettingsOpen(false); settingsButton.current?.focus(); };
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && settingsOpen && !document.fullscreenElement) closeSettings(); }; document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close); }, [preferences, settingsOpen]);
@@ -149,11 +152,16 @@ export function App() {
   const currentPage = Math.min(page, pageCount - 1);
   const visible = sessions.slice(currentPage * 4, currentPage * 4 + 4);
   useEffect(() => setPage((current) => Math.min(current, pageCount - 1)), [pageCount]);
+  useEffect(() => {
+    if (!previewEnabled || hidden || paused || reducedMotion) return;
+    const timer = window.setInterval(() => setPreviewState(nextPreviewState), 3_000);
+    return () => window.clearInterval(timer);
+  }, [previewEnabled, hidden, paused, reducedMotion]);
   const name = !tokenAvailable ? 'Open with orb open' : !transportConnected ? 'Reconnecting' : snapshot.state;
   return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}${fullscreen ? ' fullscreen-stage' : ''}`}>
     <section className="stage" aria-live="polite">
       <header aria-hidden={uiHidden}><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => settingsOpen ? closeSettings() : openSettings()}>Settings</button></header>
-      <div className="center"><div className="orb-grid">{visible.map((session) => <figure className="session-orb" key={session.key}><ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} /><figcaption>{`${session.source[0].toUpperCase()}${session.source.slice(1)} ${session.key} · ${session.state[0].toUpperCase()}${session.state.slice(1)}`}</figcaption></figure>)}{!sessions.length && <ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} />}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
+      <div className="center"><div className="orb-grid">{visible.map((session) => <figure className="session-orb" key={session.key}><ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>{`${session.source[0].toUpperCase()}${session.source.slice(1)} ${session.key} · ${session.state[0].toUpperCase()}${session.state.slice(1)}`}</figcaption></figure>)}{!sessions.length && <ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />}{previewEnabled && <figure className="session-orb preview-orb" aria-live="off"><ParticleOrb state={previewState} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>Preview · {previewState}</figcaption></figure>}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
       <footer aria-hidden={uiHidden}>{snapshot.sessionCount} observed sessions{snapshot.staleCount ? ` · ${snapshot.staleCount} stale` : ''} · updated {snapshot.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now'}</footer>
     </section>
     <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={!settingsOpen || uiHidden}>
@@ -161,6 +169,7 @@ export function App() {
       <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora', 'jarvis'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={draft.style === style} className={draft.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
       <ColorControl label="First color" value={draft.colorFrom} onChange={(colorFrom) => set({ colorFrom })} />
       <ColorControl label="Second color" value={draft.colorTo} onChange={(colorTo) => set({ colorTo })} />
+      <fieldset><legend>Preview Mode</legend><button className="preview-toggle" aria-pressed={previewEnabled} onClick={() => setPreviewEnabled((value) => !value)}>{previewEnabled ? 'Stop preview' : 'Start preview'}</button><label className="preview-state">Preview state<select value={previewState} onChange={(event) => setPreviewState(event.target.value as PreviewState)}>{previewStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label></fieldset>
       <button className="pause" onClick={() => setPaused((value) => !value)}>{paused ? 'Resume animation' : 'Pause animation'}</button>
       <button className="fullscreen" aria-pressed={fullscreen} disabled={!fullscreenSupported} title={fullscreenSupported ? undefined : 'Fullscreen is unavailable in this browser'} onClick={toggleFullscreen}>{fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button>
       <p className="credit">Styles from <a href="https://github.com/amunozdev/voiceorbs" target="_blank" rel="noreferrer">VoiceOrbs</a> and <a href="https://github.com/cyber1443/jarvis-ai-orb-web-animation" target="_blank" rel="noreferrer">Jarvis AI Orb</a> (MIT).</p>
