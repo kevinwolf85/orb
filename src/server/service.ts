@@ -108,6 +108,6 @@ async function asset(pathname: string, res: ServerResponse, head = false): Promi
     for (const candidate of files) try { body = await readFile(candidate); file = candidate; break; } catch { /* try source layout */ }
     if (!body) return reply(res, 404);
     const type = ({ ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml" } as Record<string, string>)[extname(file)] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": type, "Cache-Control": "public, max-age=3600" }); res.end(head ? undefined : body);
+    res.writeHead(200, { "Content-Type": type, "Cache-Control": extname(file) === ".html" ? "no-store" : "public, max-age=3600" }); res.end(head ? undefined : body);
   } catch { reply(res, 404); }
 }

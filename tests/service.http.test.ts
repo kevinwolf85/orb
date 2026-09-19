@@ -19,7 +19,9 @@ test("service reconnects through discovery and rejects unauthenticated or malfor
     assert.equal(status.status, 200);
     assert.equal(await requestStatus(info.url, "/", { Host: "example.test" }), 403);
     assert.equal((await fetch(`${info.url}/api/status`, { headers: { Authorization: `Bearer ${info.token}`, Origin: "http://127.0.0.1:1" } })).status, 403);
-    assert.equal((await fetch(`${info.url}/`)).status, 200);
+    const page = await fetch(`${info.url}/`);
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get("cache-control"), "no-store");
     const stream = await fetch(`${info.url}/api/events`, { headers: { Authorization: `Bearer ${info.token}` }, signal: streamAbort.signal });
     const reader = stream.body!.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);

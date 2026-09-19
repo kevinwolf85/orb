@@ -1,7 +1,8 @@
 import Wheel from '@uiw/react-color-wheel';
 import { hexToHsva, hsvaToHex, type HsvaColor } from '@uiw/color-convert';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { defaults, loadPreferences, normalizeColor, resetPreferences, savePreferences, shouldAnimate, type OrbStyle, type Preferences } from './preferences';
+import { loadPreferences, normalizeColor, resetPreferences, savePreferences, type OrbStyle, type Preferences } from './preferences';
+import { ParticlesOrb } from './particles-orb';
 
 type ActivityState = 'idle' | 'thinking' | 'working' | 'waiting' | 'completed' | 'error' | 'disconnected';
 type Snapshot = { state: ActivityState; sessionCount: number; activeCount: number; staleCount: number; updatedAt: number };
@@ -51,48 +52,20 @@ function useSnapshot() {
   return { snapshot, transportConnected, tokenAvailable };
 }
 
-const particleCount = 720;
-const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-
-function ParticleCanvas({ state, colors, paused }: { state: ActivityState; colors: Preferences; paused: boolean }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
-  useEffect(() => { const media = matchMedia('(prefers-reduced-motion: reduce)'); const sync = () => setReducedMotion(media.matches); media.addEventListener('change', sync); return () => media.removeEventListener('change', sync); }, []);
-  useEffect(() => {
-    const element = canvas.current; if (!element) return;
-    const context = element.getContext('2d'); if (!context) return;
-    let frame = 0; let stopped = false; let scheduled = false;
-    const draw = (time: number) => {
-      const size = element.clientWidth; const dpr = Math.min(devicePixelRatio, 2);
-      if (element.width !== size * dpr) { element.width = size * dpr; element.height = size * dpr; }
-      context.setTransform(dpr, 0, 0, dpr, 0, 0); context.clearRect(0, 0, size, size);
-      const from = colors.colorFrom; const to = colors.colorTo;
-      const energy = state === 'working' ? 1 : state === 'thinking' ? .58 : state === 'waiting' ? .22 : 0;
-      for (let i = 0; i < particleCount; i++) {
-        const y = 1 - (i / (particleCount - 1)) * 2; const radius = Math.sqrt(1 - y * y);
-        const angle = goldenAngle * i + time * (.00014 + energy * .00022);
-        const wobble = Math.sin(time * .0015 + i) * (1 + energy * 3);
-        const x = size / 2 + Math.cos(angle) * radius * size * (.3 + energy * .04) + wobble;
-        const py = size / 2 + y * size * (.31 + energy * .04);
-        context.fillStyle = i / particleCount > .5 ? to : from;
-        context.globalAlpha = .22 + (1 - Math.abs(y)) * .62; context.fillRect(x, py, 1.35, 1.35);
-      }
-      context.globalAlpha = 1;
-    };
-    const render = (time: number) => { scheduled = false; if (stopped || !shouldAnimate(paused, reducedMotion, document.hidden)) return; draw(time); schedule(); };
-    const schedule = () => { if (!scheduled && shouldAnimate(paused, reducedMotion, document.hidden)) { scheduled = true; frame = requestAnimationFrame(render); } };
-    const visibility = () => { if (document.hidden) { cancelAnimationFrame(frame); scheduled = false; } else schedule(); };
-    draw(0);
-    schedule();
-    document.addEventListener('visibilitychange', visibility);
-    return () => { stopped = true; cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', visibility); };
-  }, [colors, state, paused, reducedMotion]);
-  return <canvas className="particle-canvas" ref={canvas} aria-hidden="true" />;
-}
+const toVoiceOrbsState = (state: ActivityState) => ({
+  idle: 'idle', thinking: 'thinking', working: 'speaking', waiting: 'listening', completed: 'idle', error: 'idle', disconnected: 'disabled',
+} as const)[state];
 
 function ParticleOrb({ state, colors, style, paused }: { state: ActivityState; colors: Preferences; style: OrbStyle; paused: boolean }) {
+  const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role="img" aria-label={`Orb is ${state}`}>
-    {style === 'particles' && <ParticleCanvas state={state} colors={colors} paused={paused} />}
+    {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={340} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
     {style === 'pulse' && <><span className="ring ring-a" /><span className="ring ring-b" /><span className="ring ring-c" /></>}
     {style === 'aurora' && <><span className="veil veil-a" /><span className="veil veil-b" /><span className="veil veil-c" /></>}
     {style !== 'particles' && <span className="orb-core" />}

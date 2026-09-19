@@ -49,7 +49,3 @@ export function resetPreferences(storage: Pick<Storage, 'removeItem'>, style: Or
   try { storage.removeItem(storageKey); } catch { /* private storage */ }
   return { ...defaults, style };
 }
-
-export function shouldAnimate(paused: boolean, reducedMotion: boolean, hidden: boolean): boolean {
-  return !paused && !reducedMotion && !hidden;
-}

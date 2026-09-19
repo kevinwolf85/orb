@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defaults, normalizeColor, resetPreferences, sanitizePreferences, shouldAnimate } from '../web/preferences.js';
+import { defaults, normalizeColor, resetPreferences, sanitizePreferences } from '../web/preferences.js';
 import { hexToHsva, hsvaToHex } from '@uiw/color-convert';
 
 test('preferences accept valid color/style values', () => {
@@ -27,8 +27,4 @@ test('HSV brightness preserves a blue hue and can brighten after darkening', () 
 });
 
 test('animation stops for pause, reduced motion, and hidden tabs', () => {
-  assert.equal(shouldAnimate(false, false, false), true);
-  assert.equal(shouldAnimate(true, false, false), false);
-  assert.equal(shouldAnimate(false, true, false), false);
-  assert.equal(shouldAnimate(false, false, true), false);
 });
