@@ -3,6 +3,7 @@ import { hexToHsva, hsvaToHex, type HsvaColor } from '@uiw/color-convert';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { loadPreferences, normalizeColor, resetPreferences, savePreferences, type OrbStyle, type Preferences } from './preferences';
 import { ParticlesOrb } from './particles-orb';
+import { useAutoHide } from './use-auto-hide';
 
 type ActivityState = 'idle' | 'thinking' | 'working' | 'waiting' | 'completed' | 'error' | 'disconnected';
 type Snapshot = { state: ActivityState; sessionCount: number; activeCount: number; staleCount: number; updatedAt: number };
@@ -95,18 +96,19 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const pane = useRef<HTMLDivElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const uiHidden = useAutoHide(pane);
   useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
   useEffect(() => { const sync = () => setHidden(document.hidden); document.addEventListener('visibilitychange', sync); return () => document.removeEventListener('visibilitychange', sync); }, []);
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSettingsOpen(false); settingsButton.current?.focus(); } }; document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close); }, []);
   const set = (update: Partial<Preferences>) => setPreferences((current) => ({ ...current, ...update }));
   const name = !tokenAvailable ? 'Open with orb open' : !transportConnected ? 'Reconnecting' : snapshot.state;
-  return <main className={paused || hidden ? 'paused' : ''}>
+  return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}`}>
     <section className="stage" aria-live="polite">
-      <header><span className="mark">orb</span><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>Settings</button></header>
-      <div className="center"><ParticleOrb state={snapshot.state} colors={preferences} style={preferences.style} paused={paused || hidden} /><p className="status"><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
-      <footer><span className={`dot ${snapshot.state}`} />{snapshot.sessionCount} observed sessions{snapshot.staleCount ? ` · ${snapshot.staleCount} stale` : ''} · updated {snapshot.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now'}</footer>
+      <header aria-hidden={uiHidden}><span className="mark">orb</span><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>Settings</button></header>
+      <div className="center"><ParticleOrb state={snapshot.state} colors={preferences} style={preferences.style} paused={paused || hidden} /><p className="status" aria-hidden={uiHidden}><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span></p></div>
+      <footer aria-hidden={uiHidden}><span className={`dot ${snapshot.state}`} />{snapshot.sessionCount} observed sessions{snapshot.staleCount ? ` · ${snapshot.staleCount} stale` : ''} · updated {snapshot.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now'}</footer>
     </section>
-    <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings">
+    <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={uiHidden}>
       <div className="settings-title"><div><span className="eyebrow">Appearance</span><h1>Make it yours</h1></div><div className="settings-actions"><button onClick={() => { setPreferences(resetPreferences(localStorage, preferences.style)); }}>Reset</button><button className="close-settings" onClick={() => { setSettingsOpen(false); settingsButton.current?.focus(); }}>Close</button></div></div>
       <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={preferences.style === style} className={preferences.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
       <ColorControl label="First color" value={preferences.colorFrom} onChange={(colorFrom) => set({ colorFrom })} />
