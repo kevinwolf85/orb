@@ -22,6 +22,8 @@
 }
 
 .constellation-session .orb { width: 100%; margin-inline: auto; }
+.constellation-links { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.constellation-links line { stroke: color-mix(in srgb, var(--constellation-link, #79e6ff), transparent 72%); stroke-width: .35; }
 
 .constellation-fallback { width: 100%; display: grid; place-items: center; animation: constellation-fallback-in 280ms ease-out both; }
 .constellation-still .constellation-fallback { animation: none; }

@@ -32,17 +32,22 @@ try {
     const schema = listed.find((tool) => tool.name === 'report_activity').inputSchema;
     assert.deepEqual(schema.required, ['sessionId', 'eventId', 'state']);
     assert.equal(schema.properties.sessionId.maxLength, 128);
+    assert.equal(schema.properties.parentSessionId.maxLength, 128);
     assert.ok(schema.properties.state.enum.includes('working'));
   }));
   const [a, b] = clients;
   await Promise.all([
     call(a, 'report_activity', { sessionId: 'smoke-a', eventId: 'a1', state: 'working', operationId: 'op-a', phase: 'start' }),
-    call(b, 'report_activity', { sessionId: 'smoke-b', eventId: 'b1', state: 'working', operationId: 'op-b', phase: 'start' }),
+    call(b, 'report_activity', { sessionId: 'smoke-b', parentSessionId: 'smoke-a', eventId: 'b1', state: 'working', operationId: 'op-b', phase: 'start' }),
   ]);
   const combined = await call(a, 'get_orb_status');
   assert.equal(combined.state, 'working');
   assert.equal(combined.sessionCount, 2);
   assert.equal(combined.activeCount, 2);
+  const child = combined.sessions.find((session) => session.isSubagent);
+  assert.ok(child);
+  assert.ok(combined.sessions.some((session) => session.key === child.parentKey));
+  assert.equal(JSON.stringify(combined).includes('smoke-a'), false);
   await call(a, 'report_activity', { sessionId: 'smoke-a', eventId: 'a2', state: 'completed' });
   assert.equal((await call(a, 'get_orb_status')).state, 'working');
   await call(b, 'report_activity', { sessionId: 'smoke-b', eventId: 'b2', state: 'waiting' });
@@ -53,7 +58,7 @@ try {
   assert.equal((await call(a, 'get_orb_status')).state, 'completed');
   const invalid = await a.callTool({ name: 'report_activity', arguments: { sessionId: 'smoke-a', eventId: 'bad', state: 'arbitrary' } });
   assert.equal(invalid.isError, true);
-  console.log('PASS: packed CLI exposes three MCP tools; two concurrent clients share aggregation, priority, completion, deduplication, and validation.');
+  console.log('PASS: packed CLI exposes three MCP tools; two concurrent clients share parent linkage, aggregation, priority, completion, deduplication, and validation.');
 } finally {
   await Promise.allSettled(clients.map((client) => client.close()));
   // Daemon discovery contains a PID so this isolated smoke service can be cleaned up.

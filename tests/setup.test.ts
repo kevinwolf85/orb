@@ -31,7 +31,7 @@ test("setup rejects malformed hooks without altering the configuration", async (
   assert.equal(await readFile(file, "utf8"), malformed);
 });
 
-test("Claude installs its failure event while Codex does not", async () => {
+test("clients install documented lifecycle differences", async () => {
   const dir = await mkdtemp(join(tmpdir(), "orb-"));
   const codex = join(dir, "codex.json");
   const claude = join(dir, "claude.json");
@@ -39,4 +39,9 @@ test("Claude installs its failure event while Codex does not", async () => {
   await setup("claude", { configFile: claude, nodePath: "/node", cliPath: "/orb-cli" });
   assert.equal(JSON.parse(await readFile(codex, "utf8")).hooks.PostToolUseFailure, undefined);
   assert.equal(JSON.parse(await readFile(claude, "utf8")).hooks.PostToolUseFailure.length, 1);
+  for (const file of [codex, claude]) {
+    const hooks = JSON.parse(await readFile(file, "utf8")).hooks;
+    assert.equal(hooks.SubagentStart.length, 1);
+    assert.equal(hooks.SubagentStop.length, 1);
+  }
 });

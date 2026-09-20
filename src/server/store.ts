@@ -7,6 +7,7 @@ export interface ActivityEvent {
   operationId?: string;
   phase?: "start" | "end";
   source?: "codex" | "claude" | "mcp";
+  parentSessionId?: string;
 }
 
 export interface Snapshot {
@@ -23,6 +24,8 @@ export interface SessionSummary {
   source: "codex" | "claude" | "mcp";
   state: ActivityState;
   updatedAt: number;
+  isSubagent?: true;
+  parentKey?: number;
 }
 
 interface Session {
@@ -31,6 +34,7 @@ interface Session {
   state: ActivityState;
   updatedAt: number;
   completedAt?: number;
+  parentSessionId?: string;
   operations: Map<string, ActivityState>;
   endedOperations: Set<string>;
 }
@@ -49,6 +53,7 @@ export class ActivityStore {
   private nextSessionKey = 0;
 
   report(event: ActivityEvent, now = Date.now()): boolean {
+    if (event.parentSessionId && (event.parentSessionId === event.sessionId || this.wouldCreateCycle(event.sessionId, event.parentSessionId))) return false;
     const eventKey = `${event.sessionId}\u0000${event.eventId}`;
     if (this.eventIds.has(eventKey)) return false;
     this.eventIds.add(eventKey);
@@ -73,6 +78,7 @@ export class ActivityStore {
     const ignoredStart = event.operationId && event.phase === "start" && session.endedOperations.has(event.operationId);
     if (ignoredStart) return false;
     session.source = event.source ?? session.source;
+    if (event.parentSessionId) session.parentSessionId = event.parentSessionId;
     session.updatedAt = now;
     session.state = event.state;
     if (event.operationId && event.phase === "start") {
@@ -102,17 +108,30 @@ export class ActivityStore {
     let staleCount = 0;
     let activeCount = 0;
     const states: ActivityState[] = [];
-    const summaries: SessionSummary[] = [];
+    const summaries = new Map<number, SessionSummary>();
+    const addSummary = (session: Session, state: ActivityState) => {
+      const parent = session.parentSessionId ? this.sessions.get(session.parentSessionId) : undefined;
+      summaries.set(session.key, {
+        key: session.key, source: session.source, state, updatedAt: session.updatedAt,
+        ...(session.parentSessionId ? { isSubagent: true as const } : {}),
+        ...(parent ? { parentKey: parent.key } : {}),
+      });
+    };
+    const addAnchors = (parentId: string | undefined) => {
+      const parent = parentId ? this.sessions.get(parentId) : undefined;
+      if (!parent || summaries.has(parent.key)) return;
+      addSummary(parent, this.sessionState(parent, now));
+      addAnchors(parent.parentSessionId);
+    };
     for (const session of this.sessions.values()) {
       const stale = now - session.updatedAt > STALE_MS;
       if (stale) { staleCount++; continue; }
-      const operationStates = [...session.operations.values()];
-      let state = operationStates.length ? best([session.state, ...operationStates]) : session.state;
-      if (state === "completed" && session.completedAt !== undefined && now - session.completedAt > COMPLETION_MS) state = "idle";
+      const state = this.sessionState(session, now);
       if (["waiting", "working", "thinking"].includes(state)) activeCount++;
       states.push(state);
       if (["working", "thinking", "waiting", "error", "completed"].includes(state)) {
-        summaries.push({ key: session.key, source: session.source, state, updatedAt: session.updatedAt });
+        addSummary(session, state);
+        addAnchors(session.parentSessionId);
       }
     }
     return {
@@ -121,8 +140,24 @@ export class ActivityStore {
       activeCount,
       staleCount,
       updatedAt: this.lastUpdatedAt,
-      sessions: summaries,
+      sessions: [...summaries.values()],
     };
+  }
+
+  private sessionState(session: Session, now: number): ActivityState {
+    if (now - session.updatedAt > STALE_MS) return "disconnected";
+    const operationStates = [...session.operations.values()];
+    const state = operationStates.length ? best([session.state, ...operationStates]) : session.state;
+    return state === "completed" && session.completedAt !== undefined && now - session.completedAt > COMPLETION_MS ? "idle" : state;
+  }
+
+  private wouldCreateCycle(sessionId: string, parentSessionId: string): boolean {
+    const seen = new Set<string>();
+    for (let current: string | undefined = parentSessionId; current; current = this.sessions.get(current)?.parentSessionId) {
+      if (current === sessionId || seen.has(current)) return true;
+      seen.add(current);
+    }
+    return false;
   }
 }
 

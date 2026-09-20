@@ -47,7 +47,9 @@ Hooks are optional and are never installed automatically. `orb setup codex` upda
 
 Hook configuration formats and event support remain client-dependent. Orb installs its supported entries, but cannot guarantee that a given Codex or Claude Code version will execute every lifecycle event. Hook installation currently supports macOS and Linux shell environments; Windows is not supported because the generated command uses POSIX shell quoting.
 
-Hooks report session start/end, prompts, permissions, tool start/end, stops, and interrupts; Claude Code also has failure events. Reporting is fail-open, writes no hook stdout, has a one-second Orb deadline, and never starts the service from a hook report.
+Hooks report session start/end, prompts, permissions, tool start/end, stops, interrupts, and subagent start/stop; Claude Code also has failure events. Subagent lifecycle hooks identify the parent session and show the child as working until it finishes; they do not provide per-tool subagent state. After upgrading, run `orb setup codex` or `orb setup claude` again to add newly supported events. Reporting is fail-open, writes no hook stdout, has a one-second Orb deadline, and never starts the service from a hook report.
+
+Generic MCP clients can include `parentSessionId` in `report_activity` to associate a child with its originating session. Use the parent's exact reported session ID. Unknown parents leave the child visible on its own until the parent reports; the browser receives only opaque numeric relationship keys.
 
 ## Browser controls
 
@@ -55,11 +57,13 @@ The browser view shows aggregate agent state and active sessions. The Settings t
 
 Each active session gets its own orb. Two to four session orbs follow a shared elliptical orbit, becoming larger and brighter in the foreground and smaller and dimmer in the background. New sessions fade into the group; departing sessions fade out while the others redistribute smoothly. Working sessions move more energetically, thinking sessions drift, and waiting sessions settle. Your selected colors remain unchanged. Session labels are available to screen readers; session counts and connection details live in Settings. One session stays large and centered, with Previous and Next controls when more than four sessions are available. Orbital motion pauses with the animation controls and hidden tabs; reduced motion uses a static layout. Settings also includes **Preview Mode**: selecting a state immediately shows a preview and holds that state. Use **Start auto-cycle** to cycle through states, **Pause auto-cycle** to hold the current state, or **Stop preview** to hide it. Closing settings stops the preview. Cycling pauses when the tab is hidden, animation is paused, or reduced motion is enabled; preview never reports activity or changes live session data.
 
+Active subagents appear as smaller satellites with a faint line to their parent. Related sessions stay together when paging; larger families repeat their parent on subsequent pages. A known inactive parent stays visible as an anchor while its children work. No visible session labels are added, and reduced motion preserves the relationships in a static layout.
+
 The chrome automatically hides after five seconds without input. Moving or pressing the pointer, touching, typing, or focusing the view reveals it. An open Settings panel freezes auto-hide and stays visible. Particle animation respects the browser's reduced-motion preference.
 
 ## Privacy and limits
 
-Orb stores only session IDs, event IDs, state, operation IDs, and source. It does not collect prompts, tool arguments, tool output, transcripts, or model messages. The local API is authenticated; its access token is removed from the URL fragment after startup and kept in session storage.
+Orb stores only session and parent-session IDs, event IDs, state, operation IDs, and source. It does not collect prompts, tool arguments, tool output, transcripts, or model messages. The local API is authenticated; its access token is removed from the URL fragment after startup and kept in session storage.
 
 Orb is an activity indicator, not an audit log or guaranteed record of agent execution. The browser state can be stale or disconnected, and skipped hooks, client-version differences, or a closed local service can leave activity unreported.
 

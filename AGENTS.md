@@ -29,4 +29,4 @@ Run `npm run dev` for the UI, or `npm run build && node dist/server/cli.js open`
 
 ## Privacy and security
 
-Orb activity payloads, logs, and committed files must contain only session/event IDs, state, operation ID, and source: never include prompts, code, tool arguments, tool output, transcripts, or model messages. Do not transmit that data to third parties. Keep the permission-protected local runtime discovery and browser authentication flow, including Host/Origin checks and fragment-to-sessionStorage token handling, intact. Hook reporting must stay fail-open and must not block or alter the host agent.
+Orb activity payloads, logs, and committed files must contain only session/parent/event IDs, state, operation ID, and source: never include prompts, code, tool arguments, tool output, transcripts, or model messages. Do not transmit that data to third parties. Keep the permission-protected local runtime discovery and browser authentication flow, including Host/Origin checks and fragment-to-sessionStorage token handling, intact. Hook reporting must stay fail-open and must not block or alter the host agent.

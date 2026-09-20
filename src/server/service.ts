@@ -87,14 +87,16 @@ async function activity(req: IncomingMessage): Promise<ActivityEvent> {
   let size = 0; const chunks: Buffer[] = [];
   for await (const chunk of req) { const data = Buffer.from(chunk); size += data.length; if (size > MAX_BODY) throw new Error("large"); chunks.push(data); }
   const value = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-  const allowed = new Set(["sessionId", "eventId", "state", "operationId", "phase", "source"]);
+  const allowed = new Set(["sessionId", "eventId", "state", "operationId", "phase", "source", "parentSessionId"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error("fields");
   const string = (key: string, optional = false) => { const item = value[key]; if (optional && item === undefined) return undefined; if (typeof item !== "string" || item.length === 0 || item.length > 128) throw new Error(key); return item; };
   const state = string("state")!; const phase = string("phase", true); const source = string("source", true);
   if (!(["idle", "thinking", "working", "waiting", "completed", "error", "disconnected"] as string[]).includes(state)) throw new Error("state");
   if (phase && !["start", "end"].includes(phase)) throw new Error("phase");
   if (source && !["codex", "claude", "mcp"].includes(source)) throw new Error("source");
-  return { sessionId: string("sessionId")!, eventId: string("eventId")!, state: state as ActivityEvent["state"], operationId: string("operationId", true), phase: phase as ActivityEvent["phase"], source: source as ActivityEvent["source"] };
+  const sessionId = string("sessionId")!; const parentSessionId = string("parentSessionId", true);
+  if (parentSessionId === sessionId) throw new Error("parentSessionId");
+  return { sessionId, eventId: string("eventId")!, state: state as ActivityEvent["state"], operationId: string("operationId", true), phase: phase as ActivityEvent["phase"], source: source as ActivityEvent["source"], parentSessionId };
 }
 function reply(res: ServerResponse, status: number) { res.writeHead(status); res.end(); }
 function json(res: ServerResponse, status: number, value: unknown) { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(value)); }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { constellationPose, EXIT_MS, retainSessions, stateRate, type SessionSummary } from '../web/constellation-motion.js';
+import { constellationPose, EXIT_MS, retainSessions, stateRate, type SessionSummary, familyPages, familyPoses } from '../web/constellation-motion.js';
 
 const session = (key: number): SessionSummary => ({ key, source: 'codex', state: 'idle', updatedAt: 0 });
 
@@ -18,6 +18,37 @@ test('caps retained departures during rapid session churn', () => {
 
 test('reduced motion removes departures immediately', () => {
   assert.equal(retainSessions([session(1)], [], 100, true).length, 0);
+});
+
+test('family pages repeat oversized parents and retain orphans', () => {
+  const parent = session(1); const children = [2, 3, 4, 5].map((key) => ({ ...session(key), isSubagent: true, parentKey: 1 }));
+  const pages = familyPages([parent, ...children, { ...session(9), isSubagent: true, parentKey: 99 }]);
+  assert.deepEqual(pages.map((page) => page.map((item) => item.key)), [[1, 2, 3, 4], [1, 5, 9]]);
+});
+
+test('nested oversized pages retain each child with its immediate parent', () => {
+  const child = { ...session(2), parentKey: 1, isSubagent: true };
+  const grandchild = { ...session(5), parentKey: 2, isSubagent: true };
+  const pages = familyPages([child, session(1), { ...session(3), parentKey: 1 }, { ...session(4), parentKey: 1 }, grandchild]);
+  assert.ok(pages.some((page) => page.some((item) => item.key === 2) && page.some((item) => item.key === 5)));
+  assert.deepEqual([...new Set(pages.flat().map(item => item.key))].sort(), [1, 2, 3, 4, 5]);
+  assert.ok(pages.every(page => page.length <= 4));
+});
+
+test('family satellite poses remain inside the scene', () => {
+  const chain = [session(1), { ...session(2), parentKey: 1 }, { ...session(3), parentKey: 2 }, { ...session(4), parentKey: 3 }];
+  const families = [chain, [session(1), { ...session(2), parentKey: 1 }, session(3), { ...session(4), parentKey: 3 }]];
+  for (const family of families) {
+    for (let phase = 0; phase < Math.PI * 2; phase += .1) {
+      const poses = familyPoses(family, phase);
+      assert.equal(poses.size, family.length);
+      for (const pose of poses.values()) {
+        const margin = 26 * pose.scale + 1.15;
+        assert.ok(pose.x - margin >= -1e-8 && pose.x + margin <= 100 + 1e-8);
+        assert.ok(pose.y - margin >= -1e-8 && pose.y + margin <= 100 + 1e-8);
+      }
+    }
+  }
 });
 
 test('poses distribute sessions on an ellipse with front depth', () => {

@@ -1,5 +1,5 @@
 import { reportActivity } from "./client.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export type HookClient = "codex" | "claude";
 
@@ -8,6 +8,7 @@ type HookPayload = {
   hook_event_name?: unknown;
   tool_use_id?: unknown;
   tool_name?: unknown;
+  agent_id?: unknown;
 };
 
 type Activity = {
@@ -17,9 +18,12 @@ type Activity = {
   operationId?: string;
   phase?: "start" | "end";
   source: HookClient;
+  parentSessionId?: string;
 };
 
 const id = (value: unknown) => typeof value === "string" && value.length > 0 && value.length <= 128 ? value : undefined;
+const subagentSessionId = (source: HookClient, parent: string, agent: string) =>
+  `${source}:subagent:${createHash("sha256").update(`${parent}\0${agent}`).digest("base64url").slice(0, 32)}`;
 
 /** Convert documented hook input into Orb's deliberately content-free activity event. */
 export function activityFromHook(payload: HookPayload, source: HookClient): Activity | null {
@@ -33,6 +37,19 @@ export function activityFromHook(payload: HookPayload, source: HookClient): Acti
   const operationId = id(payload.tool_use_id);
   const event: Activity = { sessionId, eventId: operationId ? `${eventName}:${operationId}` : randomUUID(), state: "idle", source };
   switch (eventName) {
+    case "SubagentStart":
+    case "SubagentStop": {
+      const agentId = id(payload.agent_id);
+      if (!agentId) return null;
+      const childSessionId = subagentSessionId(source, rawSessionId, agentId);
+      return {
+        sessionId: childSessionId,
+        parentSessionId: sessionId,
+        eventId: `${eventName}:${childSessionId}`,
+        state: eventName === "SubagentStart" ? "working" : "completed",
+        source,
+      };
+    }
     case "SessionStart": event.state = "idle"; return event;
     case "SessionEnd": event.state = "disconnected"; return event;
     case "UserPromptSubmit": event.state = "thinking"; return event;

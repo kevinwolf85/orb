@@ -31,6 +31,13 @@ test("service reconnects through discovery and rejects unauthenticated or malfor
     assert.equal(malformed.status, 400);
     const reported = await fetch(`${info.url}/api/activity`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: "a", eventId: "b", state: "working" }) });
     assert.equal(reported.status, 200);
+    const selfParent = await fetch(`${info.url}/api/activity`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: "self", eventId: "self", state: "working", parentSessionId: "self" }) });
+    assert.equal(selfParent.status, 400);
+    const reportedChild = await fetch(`${info.url}/api/activity`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: "private-child", eventId: "child", state: "thinking", parentSessionId: "a" }) });
+    assert.equal(reportedChild.status, 200);
+    const childStatus = await (await fetch(`${info.url}/api/status`, { headers: { Authorization: `Bearer ${info.token}` } })).json() as { sessions: Array<{ isSubagent?: boolean; parentKey?: number }> };
+    assert.equal(typeof childStatus.sessions.find((session) => session.isSubagent)?.parentKey, "number");
+    assert.equal(JSON.stringify(childStatus).includes("private-child"), false);
     let update = "";
     for (let attempt = 0; attempt < 4 && !update.includes('"state":"working"'); attempt++) {
       update = new TextDecoder().decode((await reader.read()).value);

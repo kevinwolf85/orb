@@ -21,8 +21,8 @@ function command(client: SetupClient, options: SetupOptions): string {
 
 function hook(command: string) { return { type: "command", command, timeout: 3 }; }
 const events = (client: SetupClient) => client === "codex"
-  ? ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "Interrupt"]
-  : ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Stop", "StopFailure", "Interrupt"];
+  ? ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "Interrupt"]
+  : ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "StopFailure", "Interrupt"];
 
 async function load(path: string): Promise<Record<string, unknown>> {
   try {

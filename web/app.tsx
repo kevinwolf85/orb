@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSPropertie
 import type { JarvisPaletteValues, JarvisState, JarvisStateTarget } from 'jarvis-ai-web-animation';
 import { defaults, loadPreferences, normalizeColor, savePreferences, type OrbStyle, type Preferences } from './preferences';
 import { Constellation, type SessionSummary } from './constellation';
+import { familyPages } from './constellation-motion';
 import { ParticlesOrb } from './particles-orb';
 import { nextPreviewState, previewStates, selectPreviewState, startPreviewCycle, stopPreview, type PreviewMode } from './preview';
 import { useAutoHide } from './use-auto-hide';
@@ -148,9 +149,10 @@ export function App() {
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
   const preview = settingsOpen ? draft : preferences;
   const sessions = snapshot.sessions ?? [];
-  const pageCount = Math.max(1, Math.ceil(sessions.length / 4));
+  const pages = familyPages(sessions);
+  const pageCount = Math.max(1, pages.length);
   const currentPage = Math.min(page, pageCount - 1);
-  const visible = sessions.slice(currentPage * 4, currentPage * 4 + 4);
+  const visible = pages[currentPage] ?? [];
   useEffect(() => setPage((current) => Math.min(current, pageCount - 1)), [pageCount]);
   useEffect(() => {
     if (!previewMode.cycling || hidden || paused || reducedMotion) return;
@@ -161,7 +163,7 @@ export function App() {
   return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}${fullscreen ? ' fullscreen-stage' : ''}`}>
     <section className="stage">
       <header aria-hidden={uiHidden}><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => settingsOpen ? closeSettings() : openSettings()}>Settings</button></header>
-      <div className="center"><div className="orb-grid"><Constellation sessions={visible} paused={paused || hidden} reducedMotion={reducedMotion} renderOrb={(session) => <ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} fallback={<ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} />{previewMode.enabled && <figure className="session-orb preview-orb" aria-live="off"><ParticleOrb state={previewMode.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>Preview · {previewMode.state}</figcaption></figure>}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="sr-only" aria-live="polite">{`${name}. ${snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}.`}</p></div>
+      <div className="center"><div className="orb-grid"><Constellation sessions={visible} paused={paused || hidden} reducedMotion={reducedMotion} color={preview.colorFrom} renderOrb={(session) => <ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} fallback={<ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} />{previewMode.enabled && <figure className="session-orb preview-orb" aria-live="off"><ParticleOrb state={previewMode.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>Preview · {previewMode.state}</figcaption></figure>}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="sr-only" aria-live="polite">{`${name}. ${snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}.`}</p></div>
     </section>
     <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={!settingsOpen || uiHidden}>
       <div className="settings-title"><div><span className="eyebrow">Appearance</span><h1>Make it yours</h1></div><div className="settings-actions"><button onClick={() => setDraft({ ...defaults, style: draft.style })}>Reset</button><button onClick={applySettings}>Apply</button><button className="close-settings" onClick={closeSettings}>Close</button></div></div>
