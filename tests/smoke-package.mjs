@@ -3,10 +3,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const cli = resolve(process.argv[2] || 'dist/server/cli.js');
 const home = await mkdtemp(join(tmpdir(), 'orb-package-'));
+const runCli = (args) => promisify(execFile)(process.execPath, [cli, ...args], { env: { ...process.env, ORB_HOME: home } });
 const clients = [];
 const transports = [];
 let daemonPid;
@@ -36,6 +39,10 @@ try {
     assert.ok(schema.properties.state.enum.includes('working'));
   }));
   const [a, b] = clients;
+  assert.match((await runCli(['share', 'status'])).stdout, /sharing is off/);
+  assert.match((await runCli(['share', 'stop'])).stdout, /sharing is off/);
+  await assert.rejects(runCli(['share', '--port', '0']), /Usage:/);
+  await assert.rejects(runCli(['share', '--host']), /Usage:/);
   await Promise.all([
     call(a, 'report_activity', { sessionId: 'smoke-a', eventId: 'a1', state: 'working', operationId: 'op-a', phase: 'start' }),
     call(b, 'report_activity', { sessionId: 'smoke-b', parentSessionId: 'smoke-a', eventId: 'b1', state: 'working', operationId: 'op-b', phase: 'start' }),

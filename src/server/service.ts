@@ -1,13 +1,14 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ActivityStore, type ActivityEvent } from "./store.js";
 
 export interface ServiceInfo { url: string; token: string; pid: number; }
 const MAX_BODY = 8 * 1024;
+interface Sharing { server: Server; host: string; port: number; origin: string; token: string; }
 
 export function serviceDirectory(): string {
   return process.env.ORB_HOME || join(process.env.XDG_CACHE_HOME || join(process.env.HOME || tmpdir(), ".cache"), "orb");
@@ -18,25 +19,38 @@ export async function runService(): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const store = new ActivityStore();
   const clients = new Set<ServerResponse>();
+  const sharingClients = new Set<ServerResponse>();
   let origin = "";
+  let sharing: Sharing | undefined;
+  let sharingPending: Promise<unknown> = Promise.resolve();
   const broadcast = () => {
     const data = `event: snapshot\ndata: ${JSON.stringify(store.snapshot())}\n\n`;
-    for (const client of clients) if (!client.write(data)) client.destroy();
+    for (const client of [...clients, ...sharingClients]) if (!client.write(data)) client.destroy();
   };
-  const server = createServer((req, res) => { void handle(req, res).catch(() => reply(res, 400)); });
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const server = createServer((req, res) => { void handle(req, res, false).catch(() => reply(res, 400)); });
+  async function handle(req: IncomingMessage, res: ServerResponse, lan: boolean): Promise<void> {
     const url = new URL(req.url || "/", "http://localhost");
-    if (!validHost(req, origin) || !validOrigin(req, origin)) return reply(res, 403);
+    const expectedOrigin = lan ? sharing?.origin || "" : origin;
+    if (!validHost(req, expectedOrigin) || !validOrigin(req, expectedOrigin)) return reply(res, 403);
     if (!url.pathname.startsWith("/api/")) {
       if (req.method !== "GET" && req.method !== "HEAD") return reply(res, 405);
       return asset(url.pathname, res, req.method === "HEAD");
     }
-    if (!authorized(req, token)) return reply(res, 401);
+    if (!authorized(req, lan ? sharing?.token || "" : token)) return reply(res, 401);
     if (req.method === "GET" && url.pathname === "/api/status") return json(res, 200, store.snapshot());
     if (req.method === "GET" && url.pathname === "/api/events") {
-      if (clients.size >= 100) return reply(res, 503);
+      const subscribers = lan ? sharingClients : clients;
+      if (subscribers.size >= 100) return reply(res, 503);
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-      clients.add(res); broadcast(); req.on("close", () => clients.delete(res)); return;
+      subscribers.add(res); broadcast(); req.on("close", () => subscribers.delete(res)); return;
+    }
+    if (lan) return reply(res, 404);
+    if (req.method === "GET" && url.pathname === "/api/sharing") return json(res, 200, sharingInfo(sharing));
+    if (req.method === "POST" && url.pathname === "/api/sharing") {
+      const request = await sharingRequest(req).catch(() => null);
+      if (!request) return json(res, 400, { error: "Invalid sharing request" });
+      const result = await serializeSharing(() => updateSharing(request));
+      return json(res, result.status, result.value);
     }
     if (req.method === "POST" && url.pathname === "/api/activity") {
       const parsed = await activity(req).catch(() => null);
@@ -45,6 +59,43 @@ export async function runService(): Promise<void> {
       return json(res, 200, { accepted });
     }
     reply(res, 404);
+  }
+  function serializeSharing<T>(action: () => Promise<T>): Promise<T> {
+    const result = sharingPending.then(action, action);
+    sharingPending = result.then(() => undefined, () => undefined);
+    return result;
+  }
+  async function updateSharing(request: SharingRequest): Promise<{ status: number; value: SharingInfo | { error: string } }> {
+    if (!request.enabled) {
+      await closeSharing();
+      return { status: 200, value: { enabled: false } };
+    }
+    const host = request.host || firstPrivateIPv4();
+    if (!host) return { status: 400, value: { error: "No assigned private IPv4 address available" } };
+    const port = request.port || 4318;
+    if (sharing) {
+      if (sharing.host === host && sharing.port === port) return { status: 200, value: sharingInfo(sharing) };
+      return { status: 409, value: { error: "Sharing is already enabled; disable it before changing host or port" } };
+    }
+    const viewToken = randomBytes(32).toString("base64url");
+    const next: Sharing = { server: createServer((req, res) => { void handle(req, res, true).catch(() => reply(res, 400)); }), host, port, origin: `http://${host}:${port}`, token: viewToken };
+    try {
+      await listen(next.server, port, host);
+    } catch {
+      next.server.close();
+      return { status: 500, value: { error: "Unable to start sharing listener" } };
+    }
+    sharing = next;
+    return { status: 200, value: sharingInfo(next) };
+  }
+  async function closeSharing(): Promise<void> {
+    const active = sharing;
+    if (!active) return;
+    sharing = undefined;
+    for (const client of sharingClients) client.destroy();
+    sharingClients.clear();
+    active.server.closeAllConnections();
+    await new Promise<void>((resolve) => active.server.close(() => resolve()));
   }
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => resolve()); });
   const address = server.address();
@@ -56,11 +107,48 @@ export async function runService(): Promise<void> {
   const cleanup = async () => {
     clearInterval(tick);
     for (const client of clients) client.destroy();
+    await closeSharing();
     try { if (JSON.parse(await readFile(discoveryPath(), "utf8")).pid === process.pid) await unlink(discoveryPath()); } catch { /* already replaced or absent */ }
     server.close();
     server.closeAllConnections();
   };
   process.once("SIGTERM", cleanup); process.once("SIGINT", cleanup);
+}
+
+interface SharingRequest { enabled: boolean; host?: string; port?: number; }
+type SharingInfo = { enabled: false } | { enabled: true; url: string; };
+function sharingInfo(sharing: Sharing | undefined): SharingInfo {
+  return sharing ? { enabled: true, url: `${sharing.origin}/#token=${sharing.token}` } : { enabled: false };
+}
+async function sharingRequest(req: IncomingMessage): Promise<SharingRequest> {
+  const value = await requestJson(req);
+  if (Object.keys(value).some((key) => key !== "enabled" && key !== "host" && key !== "port")) throw new Error("fields");
+  if (typeof value.enabled !== "boolean") throw new Error("enabled");
+  if (value.host !== undefined && (typeof value.host !== "string" || !assignedPrivateIPv4(value.host))) throw new Error("host");
+  if (value.port !== undefined && (!Number.isInteger(value.port) || typeof value.port !== "number" || value.port < 1024 || value.port > 65535)) throw new Error("port");
+  return { enabled: value.enabled, host: value.host as string | undefined, port: value.port as number | undefined };
+}
+async function requestJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  let size = 0; const chunks: Buffer[] = [];
+  for await (const chunk of req) { const data = Buffer.from(chunk); size += data.length; if (size > MAX_BODY) throw new Error("large"); chunks.push(data); }
+  const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("object");
+  return value as Record<string, unknown>;
+}
+function firstPrivateIPv4(): string | undefined {
+  return Object.values(networkInterfaces()).flat().find((address) => address && address.family === "IPv4" && privateIPv4(address.address))?.address;
+}
+function assignedPrivateIPv4(host: string): boolean {
+  return privateIPv4(host) && Object.values(networkInterfaces()).flat().some((address) => address?.family === "IPv4" && address.address === host);
+}
+function privateIPv4(host: string): boolean {
+  const parts = host.split(".");
+  if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part) || Number(part) > 255)) return false;
+  const [a, b] = parts.map(Number);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+function listen(server: Server, port: number, host: string): Promise<void> {
+  return new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, host, () => { server.off("error", reject); resolve(); }); });
 }
 
 async function writeDiscovery(info: ServiceInfo): Promise<void> {

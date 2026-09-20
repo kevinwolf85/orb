@@ -30,6 +30,9 @@ node dist/server/cli.js open
 orb                 # stdio MCP server; same as `orb mcp`
 orb serve           # start the local browser service
 orb open            # start the service if needed and open the browser view
+orb share           # enable a read-only home-network display and print its link
+orb share status    # show the current sharing link, or off
+orb share stop      # disconnect LAN viewers and revoke their link
 orb doctor          # show service and hook-installation status
 orb setup codex     # add Orb's Codex lifecycle hooks
 orb setup claude    # add Orb's Claude Code lifecycle hooks
@@ -38,6 +41,14 @@ orb remove claude   # remove only Orb's Claude Code hooks
 ```
 
 `ORB_HOME` changes Orb's local runtime location. Otherwise it uses `$XDG_CACHE_HOME/orb` or `~/.cache/orb`.
+
+## View from another device at home
+
+Run `orb share` on the Mac running your coding sessions, then open the full printed link on a phone, tablet, or computer on the same home network. The link includes a separate viewing token: anyone with it on that network can see Orb, but cannot report activity or control sharing. Browser appearance controls remain local to each device.
+
+Sharing is optional and off by default. It binds one assigned private IPv4 address on port 4318, while MCP and hooks continue using the loopback service. If your Mac has multiple network connections, choose the one your other devices use: `orb share --host 192.168.1.20 --port 4318` (replace the example with your Mac's address). Run `orb share stop` before changing the address or port.
+
+Keep the Mac awake and allow Node/Orb incoming connections if macOS asks. Guest Wi-Fi or client isolation can prevent devices from reaching each other. This mode uses HTTP, not encrypted HTTPS: use it only on a trusted home network, and do not forward its port to the internet. `orb share stop` disconnects viewers and invalidates the link; sharing also turns off on service restart. Enabling it again creates a new link. After upgrading an already-running older service, restart Orb before using the sharing commands.
 
 ## MCP and hooks
 

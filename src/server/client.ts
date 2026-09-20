@@ -52,6 +52,24 @@ export async function getStatus(): Promise<Snapshot | null> {
   return response?.ok ? await response.json() as Snapshot : null;
 }
 
+export type SharingStatus = { enabled: false } | { enabled: true; url: string };
+export async function sharing(options?: { enabled: boolean; host?: string; port?: number }): Promise<SharingStatus> {
+  const service = options?.enabled ? await ensureService() : await getService();
+  if (!service) return { enabled: false };
+  const response = await fetch(`${service.url}/api/sharing`, {
+    method: options ? 'POST' : 'GET',
+    headers: { Authorization: `Bearer ${service.token}`, ...(options ? { 'Content-Type': 'application/json' } : {}) },
+    ...(options ? { body: JSON.stringify(options) } : {}),
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!response.ok) {
+    if (response.status === 404) throw new Error('Restart the Orb service to enable LAN sharing support.');
+    const detail = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(detail.error || `LAN sharing request failed (${response.status}).`);
+  }
+  return await response.json() as SharingStatus;
+}
+
 export async function openOrb(): Promise<string> {
   const service = await ensureService();
   const target = `${service.url}/#token=${encodeURIComponent(service.token)}`;
