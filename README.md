@@ -32,7 +32,8 @@ orb serve           # start the local browser service
 orb open            # start the service if needed and open the browser view
 orb share           # enable a read-only home-network display and print its link
 orb share status    # show the current sharing link, or off
-orb share stop      # disconnect LAN viewers and revoke their link
+orb share stop      # disconnect LAN viewers; keep the saved link for later
+orb share rotate    # revoke the old link and generate a new access token
 orb doctor          # show service and hook-installation status
 orb setup codex     # add Orb's Codex lifecycle hooks
 orb setup claude    # add Orb's Claude Code lifecycle hooks
@@ -46,9 +47,11 @@ orb remove claude   # remove only Orb's Claude Code hooks
 
 Run `orb share` on the Mac running your coding sessions, then open the full printed link on a phone, tablet, or computer on the same home network. The link includes a separate viewing token: anyone with it on that network can see Orb, but cannot report activity or control sharing. Browser appearance controls remain local to each device.
 
-Sharing is optional and off by default. It binds one assigned private IPv4 address on port 4318, while MCP and hooks continue using the loopback service. If your Mac has multiple network connections, choose the one your other devices use: `orb share --host 192.168.1.20 --port 4318` (replace the example with your Mac's address). Run `orb share stop` before changing the address or port.
+Sharing is optional and initially off. It binds one assigned private IPv4 address on port 4318, while MCP and hooks continue using the loopback service. If your Mac has multiple network connections, choose the one your other devices use: `orb share --host 192.168.1.20 --port 4318` (replace the example with your Mac's address). Run `orb share stop` before changing the address or port.
 
-Keep the Mac awake and allow Node/Orb incoming connections if macOS asks. Guest Wi-Fi or client isolation can prevent devices from reaching each other. This mode uses HTTP, not encrypted HTTPS: use it only on a trusted home network, and do not forward its port to the internet. `orb share stop` disconnects viewers and invalidates the link; sharing also turns off on service restart. Enabling it again creates a new link. After upgrading an already-running older service, restart Orb before using the sharing commands.
+Orb saves the viewing token, address, port, and enabled setting in a permission-protected `lan.json` alongside its service discovery file. The same link survives service restarts and `orb share stop` / `orb share`; enabled sharing resumes when the service starts and the saved address is still assigned to the Mac. `orb share stop` disconnects viewers immediately but keeps the link. Use `orb share rotate` to invalidate the old link and disconnect existing viewers; it preserves whether sharing is enabled.
+
+The full URL stays stable only while the Mac keeps the same local IP address. A DHCP reservation on your router can keep that address fixed; Orb does not configure your router. If the saved address is unavailable, Orb leaves LAN sharing off rather than binding elsewhere. Keep the Mac awake and allow Node/Orb incoming connections if macOS asks. Guest Wi-Fi or client isolation can prevent devices from reaching each other. This mode uses HTTP, not encrypted HTTPS: use it only on a trusted home network, and do not forward its port to the internet. After upgrading an already-running older service, restart Orb before using the new sharing commands.
 
 ## MCP and hooks
 
@@ -64,11 +67,13 @@ Generic MCP clients can include `parentSessionId` in `report_activity` to associ
 
 ## Browser controls
 
-The browser view shows aggregate agent state and active sessions. The Settings toggle is available on desktop and mobile. Open it to choose Particles, Pulse, Aurora, or the Three.js-based Jarvis style; set two colors with the wheel, sliders, or a hex value; reset the draft; pause animation; or enter fullscreen. The Jarvis style follows the same activity states and selected colors. Changes preview immediately, but **Apply** is required to save them in browser local storage and close the panel. **Close**, toggling Settings off, or Escape discards the draft. Fullscreen can be exited with the same button or the browser's Escape key.
+The browser view shows aggregate agent state and active sessions. The Settings toggle is available on desktop and mobile. Open it to choose Particles, Pulse, Aurora, the Three.js-based Jarvis style, or the faceted Polly style; set two colors with the wheel, sliders, or a hex value; enable a slow random color cycle; reset the draft; pause animation; or enter fullscreen. Jarvis and Polly follow the same activity states and selected colors. Changes preview immediately, but **Apply** is required to save them in browser local storage and close the panel. **Close**, toggling Settings off, or Escape discards the draft. Fullscreen can be exited with the same button or the browser's Escape key.
 
 Each active session gets its own orb. Two to four session orbs follow a shared elliptical orbit, becoming larger and brighter in the foreground and smaller and dimmer in the background. New sessions fade into the group; departing sessions fade out while the others redistribute smoothly. Working sessions move more energetically, thinking sessions drift, and waiting sessions settle. Your selected colors remain unchanged. Session labels are available to screen readers; session counts and connection details live in Settings. One session stays large and centered, with Previous and Next controls when more than four sessions are available. Orbital motion pauses with the animation controls and hidden tabs; reduced motion uses a static layout. Settings also includes **Preview Mode**: selecting a state immediately shows a preview and holds that state. Use **Start auto-cycle** to cycle through states, **Pause auto-cycle** to hold the current state, or **Stop preview** to hide it. Closing settings stops the preview. Cycling pauses when the tab is hidden, animation is paused, or reduced motion is enabled; preview never reports activity or changes live session data.
 
 Active subagents appear as smaller satellites with a faint line to their parent. Related sessions stay together when paging; larger families repeat their parent on subsequent pages. A known inactive parent stays visible as an anchor while its children work. No visible session labels are added, and reduced motion preserves the relationships in a static layout.
+
+A brief, faint lightning bolt follows a subagent's connection when its completion hook returns control to the parent. This indicates a completed handoff, not every intermediate message: supported hooks do not expose reliable targeted message events. Bolts are suppressed with reduced motion, paused animation, and hidden tabs; reopening or reconnecting the display does not replay earlier handoffs.
 
 The chrome automatically hides after five seconds without input. Moving or pressing the pointer, touching, typing, or focusing the view reveals it. An open Settings panel freezes auto-hide and stays visible. Particle animation respects the browser's reduced-motion preference.
 

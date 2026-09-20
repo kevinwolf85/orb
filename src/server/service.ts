@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +14,11 @@ export function serviceDirectory(): string {
   return process.env.ORB_HOME || join(process.env.XDG_CACHE_HOME || join(process.env.HOME || tmpdir(), ".cache"), "orb");
 }
 export function discoveryPath(): string { return join(serviceDirectory(), "service.json"); }
+function lanPath(): string { return join(serviceDirectory(), "lan.json"); }
 
 export async function runService(): Promise<void> {
   const token = randomBytes(32).toString("base64url");
+  let lanConfig = await readLanConfig();
   const store = new ActivityStore();
   const clients = new Set<ServerResponse>();
   const sharingClients = new Set<ServerResponse>();
@@ -67,17 +69,32 @@ export async function runService(): Promise<void> {
   }
   async function updateSharing(request: SharingRequest): Promise<{ status: number; value: SharingInfo | { error: string } }> {
     if (!request.enabled) {
+      if (request.rotateToken && !lanConfig && !sharing) return { status: 400, value: { error: "No saved LAN link to rotate" } };
+      if (lanConfig || sharing) {
+        const next = { token: request.rotateToken ? randomBytes(32).toString("base64url") : lanConfig?.token || sharing!.token, host: lanConfig?.host || sharing!.host, port: lanConfig?.port || sharing!.port, enabled: false };
+        try { await writeLanConfig(next); } catch { return { status: 500, value: { error: "Unable to save sharing configuration" } }; }
+        lanConfig = next;
+      }
       await closeSharing();
       return { status: 200, value: { enabled: false } };
     }
-    const host = request.host || firstPrivateIPv4();
-    if (!host) return { status: 400, value: { error: "No assigned private IPv4 address available" } };
-    const port = request.port || 4318;
+    const host = request.host || lanConfig?.host || firstPrivateIPv4();
+    if (!host || !assignedPrivateIPv4(host)) return { status: 400, value: { error: "No assigned private IPv4 address available" } };
+    const port = request.port || lanConfig?.port || 4318;
     if (sharing) {
-      if (sharing.host === host && sharing.port === port) return { status: 200, value: sharingInfo(sharing) };
+      if (sharing.host === host && sharing.port === port) {
+        if (!request.rotateToken) return { status: 200, value: sharingInfo(sharing) };
+        const next = { token: randomBytes(32).toString("base64url"), host, port, enabled: true };
+        try { await writeLanConfig(next); } catch { return { status: 500, value: { error: "Unable to save sharing configuration" } }; }
+        lanConfig = next;
+        sharing.token = next.token;
+        for (const client of sharingClients) client.destroy();
+        sharingClients.clear();
+        return { status: 200, value: sharingInfo(sharing) };
+      }
       return { status: 409, value: { error: "Sharing is already enabled; disable it before changing host or port" } };
     }
-    const viewToken = randomBytes(32).toString("base64url");
+    const viewToken = request.rotateToken || !lanConfig ? randomBytes(32).toString("base64url") : lanConfig.token;
     const next: Sharing = { server: createServer((req, res) => { void handle(req, res, true).catch(() => reply(res, 400)); }), host, port, origin: `http://${host}:${port}`, token: viewToken };
     try {
       await listen(next.server, port, host);
@@ -85,6 +102,8 @@ export async function runService(): Promise<void> {
       next.server.close();
       return { status: 500, value: { error: "Unable to start sharing listener" } };
     }
+    try { await writeLanConfig({ token: viewToken, host, port, enabled: true }); } catch { await closeServer(next.server); return { status: 500, value: { error: "Unable to save sharing configuration" } }; }
+    lanConfig = { token: viewToken, host, port, enabled: true };
     sharing = next;
     return { status: 200, value: sharingInfo(next) };
   }
@@ -102,6 +121,9 @@ export async function runService(): Promise<void> {
   if (!address || typeof address === "string") throw new Error("Unable to determine Orb service address");
   const info: ServiceInfo = { url: `http://127.0.0.1:${address.port}`, token, pid: process.pid };
   origin = info.url;
+  if (lanConfig?.enabled && assignedPrivateIPv4(lanConfig.host)) {
+    await serializeSharing(() => updateSharing({ enabled: true })).catch(() => undefined);
+  }
   await writeDiscovery(info);
   const tick = setInterval(broadcast, 1_000); tick.unref();
   const cleanup = async () => {
@@ -115,18 +137,20 @@ export async function runService(): Promise<void> {
   process.once("SIGTERM", cleanup); process.once("SIGINT", cleanup);
 }
 
-interface SharingRequest { enabled: boolean; host?: string; port?: number; }
+interface SharingRequest { enabled: boolean; host?: string; port?: number; rotateToken?: boolean; }
+interface LanConfig { token: string; host: string; port: number; enabled: boolean; }
 type SharingInfo = { enabled: false } | { enabled: true; url: string; };
 function sharingInfo(sharing: Sharing | undefined): SharingInfo {
   return sharing ? { enabled: true, url: `${sharing.origin}/#token=${sharing.token}` } : { enabled: false };
 }
 async function sharingRequest(req: IncomingMessage): Promise<SharingRequest> {
   const value = await requestJson(req);
-  if (Object.keys(value).some((key) => key !== "enabled" && key !== "host" && key !== "port")) throw new Error("fields");
+  if (Object.keys(value).some((key) => key !== "enabled" && key !== "host" && key !== "port" && key !== "rotateToken")) throw new Error("fields");
   if (typeof value.enabled !== "boolean") throw new Error("enabled");
   if (value.host !== undefined && (typeof value.host !== "string" || !assignedPrivateIPv4(value.host))) throw new Error("host");
   if (value.port !== undefined && (!Number.isInteger(value.port) || typeof value.port !== "number" || value.port < 1024 || value.port > 65535)) throw new Error("port");
-  return { enabled: value.enabled, host: value.host as string | undefined, port: value.port as number | undefined };
+  if (value.rotateToken !== undefined && typeof value.rotateToken !== "boolean") throw new Error("rotateToken");
+  return { enabled: value.enabled, host: value.host as string | undefined, port: value.port as number | undefined, rotateToken: value.rotateToken as boolean | undefined };
 }
 async function requestJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   let size = 0; const chunks: Buffer[] = [];
@@ -156,6 +180,31 @@ async function writeDiscovery(info: ServiceInfo): Promise<void> {
   const temp = `${discoveryPath()}.${process.pid}.${randomBytes(4).toString("hex")}`;
   await writeFile(temp, JSON.stringify(info), { mode: 0o600 });
   await rename(temp, discoveryPath());
+}
+async function readLanConfig(): Promise<LanConfig | undefined> {
+  try {
+    const value: unknown = JSON.parse(await readFile(lanPath(), "utf8"));
+    if (!value || Array.isArray(value) || typeof value !== "object") return undefined;
+    const config = value as Record<string, unknown>;
+    if (Object.keys(config).some((key) => key !== "token" && key !== "host" && key !== "port" && key !== "enabled") || typeof config.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(config.token) || typeof config.host !== "string" || !privateIPv4(config.host) || typeof config.port !== "number" || !Number.isInteger(config.port) || config.port < 1024 || config.port > 65535 || typeof config.enabled !== "boolean") return undefined;
+    return { token: config.token, host: config.host, port: config.port, enabled: config.enabled } as LanConfig;
+  } catch { return undefined; }
+}
+async function writeLanConfig(config: LanConfig): Promise<void> {
+  await mkdir(dirname(lanPath()), { recursive: true, mode: 0o700 });
+  const temp = `${lanPath()}.${process.pid}.${randomBytes(4).toString("hex")}`;
+  try {
+    await writeFile(temp, JSON.stringify(config), { mode: 0o600 });
+    await chmod(temp, 0o600);
+    await rename(temp, lanPath());
+  } catch (error) {
+    await unlink(temp).catch(() => undefined);
+    throw error;
+  }
+}
+function closeServer(server: Server): Promise<void> {
+  server.closeAllConnections();
+  return new Promise((resolve) => server.close(() => resolve()));
 }
 function authorized(req: IncomingMessage, token: string): boolean {
   const value = req.headers.authorization;

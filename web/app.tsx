@@ -6,8 +6,10 @@ import { defaults, loadPreferences, normalizeColor, savePreferences, type OrbSty
 import { Constellation, type SessionSummary } from './constellation';
 import { familyPages } from './constellation-motion';
 import { ParticlesOrb } from './particles-orb';
+import { PollyOrb } from './polly-orb';
 import { nextPreviewState, previewStates, selectPreviewState, startPreviewCycle, stopPreview, type PreviewMode } from './preview';
 import { useAutoHide } from './use-auto-hide';
+import { useColorCycle } from './use-color-cycle';
 
 const JarvisOrb = lazy(async () => ({ default: (await import('jarvis-ai-web-animation')).JarvisOrb }));
 
@@ -95,10 +97,11 @@ function ParticleOrb({ state, colors, style, paused, reducedMotion }: { state: A
   const palette = useMemo(() => jarvisPalette(colors), [colors.colorFrom, colors.colorTo]);
   return <div className={`orb orb-${style} state-${state}`} style={{ '--from': colors.colorFrom, '--to': colors.colorTo } as CSSProperties} role={style === 'jarvis' ? undefined : 'img'} aria-label={style === 'jarvis' ? undefined : `Orb is ${state}`}>
     {style === 'particles' && <ParticlesOrb className="particle-orb" state={toVoiceOrbsState(state)} size={600} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
+    {style === 'polly' && <PollyOrb className="polly-orb" state={state} size={600} speed={2} colorFrom={colors.colorFrom} colorTo={colors.colorTo} paused={paused || reducedMotion} label={`Orb is ${state}`} />}
     {style === 'jarvis' && <Suspense fallback={<span className="jarvis-loading" aria-hidden="true" />}><JarvisOrb className="jarvis-orb" size="hero" state={jarvisState(state)} palette={palette} quality="auto" paused={paused || reducedMotion} interactive={false} breathing={jarvisBreathing(state)} breathingIntensity={jarvisBreathingIntensity(state)} ariaLabel={`Orb is ${state}`} /></Suspense>}
     {style === 'pulse' && <><span className="ring ring-a" /><span className="ring ring-b" /><span className="ring ring-c" /></>}
     {style === 'aurora' && <><span className="veil veil-a" /><span className="veil veil-b" /><span className="veil veil-c" /></>}
-    {style !== 'particles' && style !== 'jarvis' && <span className="orb-core" />}
+    {(style === 'pulse' || style === 'aurora') && <span className="orb-core" />}
   </div>;
 }
 
@@ -148,6 +151,7 @@ export function App() {
   const toggleFullscreen = () => { if (fullscreenSupported) void (fullscreen ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); };
   const set = (update: Partial<Preferences>) => setDraft((current) => ({ ...current, ...update }));
   const preview = settingsOpen ? draft : preferences;
+  const colors = useColorCycle(preview, preview.slowColorCycle, paused || hidden || reducedMotion);
   const sessions = snapshot.sessions ?? [];
   const pages = familyPages(sessions);
   const pageCount = Math.max(1, pages.length);
@@ -163,13 +167,14 @@ export function App() {
   return <main className={`${paused || hidden ? 'paused' : ''}${uiHidden ? ' ui-hidden' : ''}${settingsOpen ? ' settings-open' : ''}${fullscreen ? ' fullscreen-stage' : ''}`}>
     <section className="stage">
       <header aria-hidden={uiHidden}><button ref={settingsButton} className="settings-toggle" aria-label="Toggle settings" aria-expanded={settingsOpen} onClick={() => settingsOpen ? closeSettings() : openSettings()}>Settings</button></header>
-      <div className="center"><div className="orb-grid"><Constellation sessions={visible} paused={paused || hidden} reducedMotion={reducedMotion} color={preview.colorFrom} renderOrb={(session) => <ParticleOrb state={session.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} fallback={<ParticleOrb state={snapshot.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} />{previewMode.enabled && <figure className="session-orb preview-orb" aria-live="off"><ParticleOrb state={previewMode.state} colors={preview} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>Preview · {previewMode.state}</figcaption></figure>}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="sr-only" aria-live="polite">{`${name}. ${snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}.`}</p></div>
+      <div className="center"><div className="orb-grid"><Constellation sessions={visible} paused={paused || hidden} reducedMotion={reducedMotion} connected={transportConnected} color={colors.colorFrom} renderOrb={(session) => <ParticleOrb state={session.state} colors={{ ...preview, ...colors }} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} fallback={<ParticleOrb state={snapshot.state} colors={{ ...preview, ...colors }} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} />} />{previewMode.enabled && <figure className="session-orb preview-orb" aria-live="off"><ParticleOrb state={previewMode.state} colors={{ ...preview, ...colors }} style={preview.style} paused={paused || hidden} reducedMotion={reducedMotion} /><figcaption>Preview · {previewMode.state}</figcaption></figure>}</div>{pageCount > 1 && <nav aria-label="Session pages" className="session-pages"><button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>Page {currentPage + 1} of {pageCount}</span><button disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}<p className="sr-only" aria-live="polite">{`${name}. ${snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}.`}</p></div>
     </section>
     <aside ref={pane} className={`settings ${settingsOpen ? 'open' : ''}`} aria-label="Orb settings" aria-hidden={!settingsOpen || uiHidden}>
       <div className="settings-title"><div><span className="eyebrow">Appearance</span><h1>Make it yours</h1></div><div className="settings-actions"><button onClick={() => setDraft({ ...defaults, style: draft.style })}>Reset</button><button onClick={applySettings}>Apply</button><button className="close-settings" onClick={closeSettings}>Close</button></div></div>
-      <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora', 'jarvis'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={draft.style === style} className={draft.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
+      <fieldset><legend>Style</legend><div className="styles">{(['particles', 'pulse', 'aurora', 'jarvis', 'polly'] as OrbStyle[]).map((style) => <button key={style} aria-pressed={draft.style === style} className={draft.style === style ? 'selected' : ''} onClick={() => set({ style })}><i className={`style-preview ${style}`} aria-hidden="true" />{style}</button>)}</div></fieldset>
       <ColorControl label="First color" value={draft.colorFrom} onChange={(colorFrom) => set({ colorFrom })} />
       <ColorControl label="Second color" value={draft.colorTo} onChange={(colorTo) => set({ colorTo })} />
+      <label className="color-cycle"><input type="checkbox" checked={draft.slowColorCycle} onChange={(event) => set({ slowColorCycle: event.target.checked })} /> Slowly cycle random colors</label>
       <fieldset className="connection-details"><legend>Connection</legend><b>{name}</b><span>{snapshot.activeCount ? `${snapshot.activeCount} active session${snapshot.activeCount === 1 ? '' : 's'}` : 'Watching for activity'}</span><span>{`${snapshot.sessionCount} observed${snapshot.staleCount ? ` · ${snapshot.staleCount} stale` : ''}`}</span><span>Updated {snapshot.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now'}</span></fieldset>
       <fieldset><legend>Preview Mode</legend><button className="preview-toggle" aria-pressed={previewMode.cycling} onClick={() => setPreviewMode((current) => current.cycling ? selectPreviewState(current.state) : startPreviewCycle(current.state))}>{previewMode.cycling ? 'Pause auto-cycle' : 'Start auto-cycle'}</button>{previewMode.enabled && <button className="preview-toggle" onClick={() => setPreviewMode((current) => stopPreview(current.state))}>Stop preview</button>}<label className="preview-state">Preview state<select value={previewMode.state} onChange={(event) => setPreviewMode(selectPreviewState(event.target.value as PreviewMode['state']))}>{previewStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label></fieldset>
       <button className="pause" onClick={() => setPaused((value) => !value)}>{paused ? 'Resume animation' : 'Pause animation'}</button>

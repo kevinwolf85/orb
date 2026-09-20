@@ -7,6 +7,30 @@ export type SessionSummary = {
   updatedAt: number;
   isSubagent?: boolean;
   parentKey?: number;
+  completion?: { sequence: number; at: number };
+};
+
+export const COMPLETION_PULSE_MAX_AGE_MS = 2_000;
+
+export const completionPulseKeys = (
+  checkpoints: ReadonlyMap<number, number>,
+  sessions: readonly SessionSummary[],
+  enabled: boolean,
+  now: number,
+) => {
+  const next = new Map(checkpoints);
+  const keys: number[] = [];
+  for (const session of sessions) {
+    const sequence = session.completion?.sequence;
+    const prior = next.get(session.key);
+    if (sequence == null) {
+      if (session.parentKey != null && prior == null) next.set(session.key, 0);
+      continue;
+    }
+    if (enabled && prior != null && sequence > prior && now - session.completion!.at <= COMPLETION_PULSE_MAX_AGE_MS && session.parentKey != null) keys.push(session.key);
+    next.set(session.key, Math.max(prior ?? sequence, sequence));
+  }
+  return { checkpoints: next, keys };
 };
 
 export const familyPages = (sessions: readonly SessionSummary[]): SessionSummary[][] => {

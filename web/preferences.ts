@@ -1,14 +1,16 @@
-export type OrbStyle = 'particles' | 'pulse' | 'aurora' | 'jarvis';
+export type OrbStyle = 'particles' | 'pulse' | 'aurora' | 'jarvis' | 'polly';
 
 export type Preferences = {
   colorFrom: string;
   colorTo: string;
+  slowColorCycle: boolean;
   style: OrbStyle;
 };
 
 export const defaults: Preferences = {
   colorFrom: '#79e6ff',
   colorTo: '#9b7bff',
+  slowColorCycle: false,
   style: 'particles',
 };
 
@@ -26,7 +28,8 @@ export function sanitizePreferences(value: unknown): Preferences {
   return {
     colorFrom: normalizeColor(candidate?.colorFrom ?? '', defaults.colorFrom),
     colorTo: normalizeColor(candidate?.colorTo ?? '', defaults.colorTo),
-    style: candidate?.style === 'pulse' || candidate?.style === 'aurora' || candidate?.style === 'particles' || candidate?.style === 'jarvis'
+    slowColorCycle: candidate?.slowColorCycle === true,
+    style: candidate?.style === 'pulse' || candidate?.style === 'aurora' || candidate?.style === 'particles' || candidate?.style === 'jarvis' || candidate?.style === 'polly'
       ? candidate.style
       : defaults.style,
   };

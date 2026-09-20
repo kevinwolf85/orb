@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { request } from "node:http";
 import { createServer } from "node:http";
 import { networkInterfaces } from "node:os";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -60,11 +60,11 @@ test("service reconnects through discovery and rejects unauthenticated or malfor
   }
 });
 
-test("service shares a view-only LAN listener and revokes it on disable", async (t) => {
+test("service keeps a stable LAN link across restarts and rotates it explicitly", async (t) => {
   const host = Object.values(networkInterfaces()).flat().find((address) => address && address.family === "IPv4" && privateIpv4(address.address))?.address;
   if (!host) return t.skip("no assigned private IPv4 address");
   const home = await mkdtemp(join(tmpdir(), "orb-sharing-test-"));
-  const child = spawn(process.execPath, ["--import", "tsx", "src/server/cli.ts", "serve"], { cwd: process.cwd(), env: { ...process.env, ORB_HOME: home }, stdio: "ignore" });
+  let child = spawn(process.execPath, ["--import", "tsx", "src/server/cli.ts", "serve"], { cwd: process.cwd(), env: { ...process.env, ORB_HOME: home }, stdio: "ignore" });
   let occupied: ReturnType<typeof createServer> | undefined;
   try {
     const info = await eventually(async () => JSON.parse(await readFile(join(home, "service.json"), "utf8")) as { url: string; token: string });
@@ -86,13 +86,48 @@ test("service shares a view-only LAN listener and revokes it on disable", async 
     assert.equal(sharing.enabled, true);
     assert.match(sharing.url, new RegExp(`^http://${host.replaceAll(".", "\\.")}:${port}/#token=.+$`));
     const viewToken = new URL(sharing.url).hash.slice("#token=".length);
+    assert.deepEqual(JSON.parse(await readFile(join(home, "lan.json"), "utf8")), { token: viewToken, host, port, enabled: true });
+    assert.equal((await stat(join(home, "lan.json"))).mode & 0o777, 0o600);
     assert.equal((await fetch(`http://${host}:${port}/api/status`, { headers: { Authorization: `Bearer ${info.token}` } })).status, 401);
     assert.equal((await fetch(`${info.url}/api/status`, { headers: { Authorization: `Bearer ${viewToken}` } })).status, 401);
     assert.equal((await fetch(`http://${host}:${port}/api/status`, { headers: { Authorization: `Bearer ${viewToken}` } })).status, 200);
     assert.equal((await fetch(`http://${host}:${port}/api/activity`, { method: "POST", headers: { Authorization: `Bearer ${viewToken}`, "Content-Type": "application/json" }, body: "{}" })).status, 404);
     assert.equal((await fetch(`http://${host}:${port}/api/sharing`, { headers: { Authorization: `Bearer ${viewToken}` } })).status, 404);
-    const disabled = await fetch(`${info.url}/api/sharing`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    const invalid = await fetch(`${info.url}/api/sharing`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true, extra: true }) });
+    assert.equal(invalid.status, 400);
+    const rotated = await fetch(`${info.url}/api/sharing`, { method: "POST", headers: { Authorization: `Bearer ${info.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true, rotateToken: true }) });
+    assert.equal(rotated.status, 200);
+    const rotatedToken = new URL((await rotated.json() as { url: string }).url).hash.slice("#token=".length);
+    assert.notEqual(rotatedToken, viewToken);
+    assert.equal((await fetch(`http://${host}:${port}/api/status`, { headers: { Authorization: `Bearer ${viewToken}` } })).status, 401);
+    assert.equal((await fetch(`http://${host}:${port}/api/status`, { headers: { Authorization: `Bearer ${rotatedToken}` } })).status, 200);
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await exited;
+    child = spawn(process.execPath, ["--import", "tsx", "src/server/cli.ts", "serve"], { cwd: process.cwd(), env: { ...process.env, ORB_HOME: home }, stdio: "ignore" });
+    const restarted = await eventually(async () => {
+      const next = JSON.parse(await readFile(join(home, "service.json"), "utf8")) as { url: string; token: string; pid: number };
+      if (next.pid === info.pid) throw new Error("old discovery");
+      return next;
+    });
+    const restored = await (await fetch(`${restarted.url}/api/sharing`, { headers: { Authorization: `Bearer ${restarted.token}` } })).json() as { enabled: boolean; url: string };
+    assert.equal(restored.enabled, true);
+    assert.equal(new URL(restored.url).hash.slice("#token=".length), rotatedToken);
+    const disabled = await fetch(`${restarted.url}/api/sharing`, { method: "POST", headers: { Authorization: `Bearer ${restarted.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
     assert.deepEqual(await disabled.json(), { enabled: false });
+    const stopped = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await stopped;
+    child = spawn(process.execPath, ["--import", "tsx", "src/server/cli.ts", "serve"], { cwd: process.cwd(), env: { ...process.env, ORB_HOME: home }, stdio: "ignore" });
+    const stoppedService = await eventually(async () => {
+      const next = JSON.parse(await readFile(join(home, "service.json"), "utf8")) as { url: string; token: string; pid: number };
+      if (next.pid === restarted.pid) throw new Error("old discovery");
+      return next;
+    });
+    assert.deepEqual(await (await fetch(`${stoppedService.url}/api/sharing`, { headers: { Authorization: `Bearer ${stoppedService.token}` } })).json(), { enabled: false });
+    const rotateStopped = await fetch(`${stoppedService.url}/api/sharing`, { method: "POST", headers: { Authorization: `Bearer ${stoppedService.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false, rotateToken: true }) });
+    assert.deepEqual(await rotateStopped.json(), { enabled: false });
+    assert.notEqual((JSON.parse(await readFile(join(home, "lan.json"), "utf8")) as { token: string }).token, rotatedToken);
   } finally {
     if (occupied) await new Promise<void>((resolve) => occupied!.close(() => resolve()));
     child.kill("SIGTERM");

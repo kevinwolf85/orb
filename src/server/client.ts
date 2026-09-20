@@ -53,8 +53,8 @@ export async function getStatus(): Promise<Snapshot | null> {
 }
 
 export type SharingStatus = { enabled: false } | { enabled: true; url: string };
-export async function sharing(options?: { enabled: boolean; host?: string; port?: number }): Promise<SharingStatus> {
-  const service = options?.enabled ? await ensureService() : await getService();
+export async function sharing(options?: { enabled: boolean; host?: string; port?: number; rotateToken?: boolean }): Promise<SharingStatus> {
+  const service = options ? await ensureService() : await getService();
   if (!service) return { enabled: false };
   const response = await fetch(`${service.url}/api/sharing`, {
     method: options ? 'POST' : 'GET',

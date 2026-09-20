@@ -89,6 +89,32 @@ test("subagents expose safe parent anchors without raw identifiers", () => {
   assert.equal(store.snapshot(3).sessions.find((session) => session.key === child.key)?.parentKey, parent.key);
 });
 
+test("linked child completion is targeted, deduplicated, and advances on later work", () => {
+  const store = new ActivityStore();
+  store.report({ sessionId: "parent", eventId: "1", state: "idle" }, 1);
+  store.report({ sessionId: "child", eventId: "1", state: "working", parentSessionId: "parent" }, 2);
+  store.report({ sessionId: "child", eventId: "2", state: "completed" }, 3);
+  const child = store.snapshot(3).sessions.find((session) => session.isSubagent)!;
+  assert.deepEqual(child.completion, { sequence: 1, at: 3 });
+  assert.equal(store.report({ sessionId: "child", eventId: "2", state: "completed" }, 4), false);
+  store.report({ sessionId: "child", eventId: "3", state: "completed" }, 5);
+  assert.deepEqual(store.snapshot(5).sessions.find((session) => session.key === child.key)?.completion, { sequence: 1, at: 3 });
+  store.report({ sessionId: "child", eventId: "4", state: "working" }, 6);
+  store.report({ sessionId: "child", eventId: "5", state: "completed" }, 7);
+  assert.deepEqual(store.snapshot(7).sessions.find((session) => session.key === child.key)?.completion, { sequence: 2, at: 7 });
+});
+
+test("linked child waits for overlapping work before signaling completion", () => {
+  const store = new ActivityStore();
+  store.report({ sessionId: "parent", eventId: "1", state: "idle" }, 1);
+  store.report({ sessionId: "child", eventId: "1", state: "working", parentSessionId: "parent", operationId: "a", phase: "start" }, 2);
+  store.report({ sessionId: "child", eventId: "2", state: "working", operationId: "b", phase: "start" }, 3);
+  store.report({ sessionId: "child", eventId: "3", state: "completed", operationId: "a", phase: "end" }, 4);
+  assert.equal(store.snapshot(4).sessions.find((session) => session.isSubagent)?.completion, undefined);
+  store.report({ sessionId: "child", eventId: "4", state: "completed", operationId: "b", phase: "end" }, 5);
+  assert.deepEqual(store.snapshot(5).sessions.find((session) => session.isSubagent)?.completion, { sequence: 1, at: 5 });
+});
+
 test("child-before-parent resolves when the parent later reports", () => {
   const store = new ActivityStore();
   store.report({ sessionId: "child", eventId: "1", state: "thinking", parentSessionId: "parent" }, 1);

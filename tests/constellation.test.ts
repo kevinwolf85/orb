@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { constellationPose, EXIT_MS, retainSessions, stateRate, type SessionSummary, familyPages, familyPoses } from '../web/constellation-motion.js';
+import { completionPulseKeys, constellationPose, EXIT_MS, retainSessions, stateRate, type SessionSummary, familyPages, familyPoses } from '../web/constellation-motion.js';
 
 const session = (key: number): SessionSummary => ({ key, source: 'codex', state: 'idle', updatedAt: 0 });
 
@@ -67,4 +67,17 @@ test('ellipse poses stay inside the field including sway', () => {
       assert.ok(pose.y - 26 * pose.scale - 1.15 >= 0 && pose.y + 26 * pose.scale + 1.15 <= 100);
     }
   }
+});
+
+test('completion pulses only after a baseline and advances while suppressed', () => {
+  const child = { ...session(2), parentKey: 1 };
+  const baseline = completionPulseKeys(new Map(), [child], true, 10);
+  assert.deepEqual(baseline.keys, []);
+  const next = completionPulseKeys(baseline.checkpoints, [{ ...child, completion: { sequence: 1, at: 20 } }], true, 20);
+  assert.deepEqual(next.keys, [2]);
+  const hidden = completionPulseKeys(next.checkpoints, [{ ...child, completion: { sequence: 2, at: 30 } }], false, 30);
+  assert.deepEqual(hidden.keys, []);
+  assert.deepEqual(completionPulseKeys(hidden.checkpoints, [{ ...child, completion: { sequence: 2, at: 30 } }], true, 30).keys, []);
+  assert.deepEqual(completionPulseKeys(new Map(), [{ ...child, completion: { sequence: 2, at: 30 } }], true, 30).keys, []);
+  assert.deepEqual(completionPulseKeys(next.checkpoints, [{ ...child, completion: { sequence: 3, at: 30 } }], true, 2_031).keys, []);
 });

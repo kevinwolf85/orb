@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { runMcp } from "./mcp.js";
-import { openOrb, getStatus, sharing } from "./client.js";
+import { openOrb, getStatus, sharing, ensureService } from "./client.js";
 import { reportHook, type HookClient } from "./hooks.js";
 import { doctor, remove, setup, type SetupClient } from "./setup.js";
 import { runService } from "./service.js";
@@ -23,17 +23,23 @@ const main = async () => {
   if (command === "serve") return runService();
   if (command === "open") return openOrb();
   if (command === 'share') {
-    const action = args[0] === 'stop' || args[0] === 'status' ? args.shift() : 'start';
-    const options: { enabled: boolean; host?: string; port?: number } = { enabled: action === 'start' };
+    const action = args[0] === 'stop' || args[0] === 'status' || args[0] === 'rotate' ? args.shift() : 'start';
+    const usage = 'Usage: orb share [--host LAN_IP] [--port PORT] | orb share stop | orb share status | orb share rotate';
+    const options: { enabled: boolean; host?: string; port?: number; rotateToken?: boolean } = { enabled: action === 'start' };
     while (args.length) {
       const flag = args.shift(), value = args.shift();
-      if (action !== 'start' || !value) throw new Error('Usage: orb share [--host LAN_IP] [--port PORT] | orb share stop | orb share status');
+      if (action !== 'start' || !value) throw new Error(usage);
       if (flag === '--host' && options.host === undefined) options.host = value;
       else if (flag === '--port' && options.port === undefined && /^\d+$/.test(value) && Number(value) >= 1024 && Number(value) <= 65535) options.port = Number(value);
-      else throw new Error('Usage: orb share [--host LAN_IP] [--port PORT] | orb share stop | orb share status');
+      else throw new Error(usage);
+    }
+    if (action === 'rotate') {
+      await ensureService();
+      options.enabled = (await sharing()).enabled;
+      options.rotateToken = true;
     }
     const result = await sharing(action === 'status' ? undefined : options);
-    process.stdout.write(result.enabled ? `LAN display (read-only):\n${result.url}\nStop sharing: orb share stop\n` : 'LAN sharing is off.\n');
+    process.stdout.write(result.enabled ? `LAN display (read-only):\n${result.url}\nStop sharing: orb share stop\n` : action === 'rotate' ? 'LAN access token rotated. Sharing remains off.\n' : 'LAN sharing is off.\n');
     return;
   }
   if (command === "report") {

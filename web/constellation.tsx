@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { familyPoses, EXIT_MS, retainSessions, stateRate, stateSway, type RetainedSession, type SessionSummary } from './constellation-motion';
+import { completionPulseKeys, familyPoses, EXIT_MS, retainSessions, stateRate, stateSway, type RetainedSession, type SessionSummary } from './constellation-motion';
 import './constellation.css';
 
 export type { SessionSummary } from './constellation-motion';
@@ -8,6 +8,7 @@ type Props = {
   sessions: readonly SessionSummary[];
   paused: boolean;
   reducedMotion: boolean;
+  connected: boolean;
   renderOrb: (session: SessionSummary) => ReactNode;
   fallback?: ReactNode;
   color?: string;
@@ -17,12 +18,19 @@ type Motion = { x: number; y: number; scale: number; brightness: number };
 const settle = (current: number, target: number, amount: number) => current + (target - current) * amount;
 const label = (session: SessionSummary) => `${session.source} ${session.isSubagent ? 'subagent' : 'session'} ${session.key}, ${session.state}${session.parentKey == null ? '' : `, parent session ${session.parentKey}`}`;
 
-export function Constellation({ sessions, paused, reducedMotion, renderOrb, fallback, color }: Props) {
+const BOLT_MS = 1400;
+
+export function Constellation({ sessions, paused, reducedMotion, connected, renderOrb, fallback, color }: Props) {
   const [shown, setShown] = useState<RetainedSession[]>(() => retainSessions([], sessions, performance.now()));
   const shownRef = useRef(shown);
   const nodes = useRef(new Map<number, HTMLElement>());
   const lines = useRef(new Map<number, SVGLineElement>());
+  const bolts = useRef(new Map<number, SVGPathElement>());
   const motion = useRef(new Map<number, Motion>());
+  const completionCheckpoints = useRef(new Map<number, number>());
+  const wasConnected = useRef(false);
+  const boltTimers = useRef(new Map<number, number>());
+  const [activeBolts, setActiveBolts] = useState(new Map<number, number>());
   const orbit = useRef({ phase: 0, rate: .075 });
   const [hidden, setHidden] = useState(() => document.hidden);
   const hasShown = shown.length > 0;
@@ -40,6 +48,12 @@ export function Constellation({ sessions, paused, reducedMotion, renderOrb, fall
         Number(nodes.current.get(session.key)?.style.getPropertyValue('--co') ?? 0),
         Number(nodes.current.get(session.parentKey!)?.style.getPropertyValue('--co') ?? 0),
       ));
+      const bolt = bolts.current.get(session.key);
+      if (bolt) {
+        const dx = child.x - parent.x; const dy = child.y - parent.y;
+        const nx = -dy; const ny = dx;
+        bolt.setAttribute('d', `M ${child.x} ${child.y} L ${child.x - dx * .25 + nx * .045} ${child.y - dy * .25 + ny * .045} L ${child.x - dx * .5 - nx * .055} ${child.y - dy * .5 - ny * .055} L ${child.x - dx * .75 + nx * .035} ${child.y - dy * .75 + ny * .035} L ${parent.x} ${parent.y}`);
+      }
     }
   };
 
@@ -57,6 +71,29 @@ export function Constellation({ sessions, paused, reducedMotion, renderOrb, fall
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
+  useEffect(() => () => { for (const timer of boltTimers.current.values()) clearTimeout(timer); }, []);
+  useEffect(() => {
+    const pulseEnabled = connected && wasConnected.current && !paused && !hidden && !reducedMotion;
+    const result = completionPulseKeys(completionCheckpoints.current, sessions, pulseEnabled, Date.now());
+    completionCheckpoints.current = result.checkpoints;
+    wasConnected.current = connected;
+    if (!pulseEnabled) {
+      for (const timer of boltTimers.current.values()) clearTimeout(timer);
+      boltTimers.current.clear();
+      setActiveBolts((current) => current.size ? new Map() : current);
+      return;
+    }
+    for (const key of result.keys) {
+      const sequence = sessions.find((session) => session.key === key)?.completion?.sequence;
+      if (sequence == null) continue;
+      clearTimeout(boltTimers.current.get(key));
+      setActiveBolts((current) => new Map(current).set(key, sequence));
+      boltTimers.current.set(key, window.setTimeout(() => {
+        boltTimers.current.delete(key);
+        setActiveBolts((current) => { const next = new Map(current); next.delete(key); return next; });
+      }, BOLT_MS));
+    }
+  }, [sessions, connected, paused, hidden, reducedMotion]);
 
   useEffect(() => {
     const staticLayout = () => {
@@ -159,13 +196,15 @@ export function Constellation({ sessions, paused, reducedMotion, renderOrb, fall
     else nodes.current.delete(key);
   };
   const bindLine = (key: number) => (node: SVGLineElement | null) => { if (node) lines.current.set(key, node); else lines.current.delete(key); };
+  const bindBolt = (key: number) => (node: SVGPathElement | null) => { if (node) bolts.current.set(key, node); else bolts.current.delete(key); };
   const hasVisible = shown.some((session) => !session.leaving);
   return <div className={`constellation-scene${paused || hidden || reducedMotion ? ' constellation-still' : ''}`} style={{ '--constellation-link': color } as CSSProperties} aria-live="polite">
-    <svg className="constellation-links" aria-hidden="true">{shown.filter((session) => session.parentKey != null && shown.some((parent) => parent.key === session.parentKey)).map((session) => <line key={session.key} ref={bindLine(session.key)} />)}</svg>
+    <svg className="constellation-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{shown.filter((session) => session.parentKey != null && shown.some((parent) => parent.key === session.parentKey)).map((session) => <line key={session.key} ref={bindLine(session.key)} />)}</svg>
     {shown.map((session) => <figure key={session.key} ref={bind(session.key)} className="constellation-session" style={{ '--cx': '50%', '--cy': '50%', '--cs': .35, '--cb': .5, '--co': 0, '--cz': 0 } as CSSProperties} aria-label={label(session)}>
       {renderOrb(session)}
       <figcaption className="sr-only">{label(session)}</figcaption>
     </figure>)}
+    <svg className="constellation-bolts" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{[...activeBolts].map(([key, sequence]) => <path key={`${key}-${sequence}`} ref={bindBolt(key)} className="constellation-bolt" pathLength="100" />)}</svg>
     {!hasVisible && shown.length === 0 && <div className="constellation-fallback">{fallback}</div>}
   </div>;
 }

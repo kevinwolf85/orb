@@ -43,6 +43,9 @@ try {
   assert.match((await runCli(['share', 'stop'])).stdout, /sharing is off/);
   await assert.rejects(runCli(['share', '--port', '0']), /Usage:/);
   await assert.rejects(runCli(['share', '--host']), /Usage:/);
+  await assert.rejects(runCli(['share', 'rotate', '--host', '127.0.0.1']), /Usage:/);
+  await assert.rejects(runCli(['share', 'rotate']), /No saved LAN link to rotate/);
+  assert.match((await runCli(['share', 'status'])).stdout, /sharing is off/);
   await Promise.all([
     call(a, 'report_activity', { sessionId: 'smoke-a', eventId: 'a1', state: 'working', operationId: 'op-a', phase: 'start' }),
     call(b, 'report_activity', { sessionId: 'smoke-b', parentSessionId: 'smoke-a', eventId: 'b1', state: 'working', operationId: 'op-b', phase: 'start' }),

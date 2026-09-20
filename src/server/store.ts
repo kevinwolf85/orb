@@ -26,6 +26,7 @@ export interface SessionSummary {
   updatedAt: number;
   isSubagent?: true;
   parentKey?: number;
+  completion?: { sequence: number; at: number };
 }
 
 interface Session {
@@ -34,6 +35,7 @@ interface Session {
   state: ActivityState;
   updatedAt: number;
   completedAt?: number;
+  completion?: { sequence: number; at: number };
   parentSessionId?: string;
   operations: Map<string, ActivityState>;
   endedOperations: Set<string>;
@@ -95,7 +97,11 @@ export class ActivityStore {
       while (session.endedOperations.size > MAX_OPERATIONS) session.endedOperations.delete(session.endedOperations.values().next().value as string);
       session.operations.clear();
     }
-    if (event.state === "completed" && session.operations.size === 0) {
+    const completed = event.state === "completed" && session.operations.size === 0;
+    if (session.parentSessionId && completed && session.completedAt === undefined) {
+      session.completion = { sequence: (session.completion?.sequence ?? 0) + 1, at: now };
+    }
+    if (completed) {
       session.completedAt = now;
     } else {
       session.completedAt = undefined;
@@ -115,6 +121,7 @@ export class ActivityStore {
         key: session.key, source: session.source, state, updatedAt: session.updatedAt,
         ...(session.parentSessionId ? { isSubagent: true as const } : {}),
         ...(parent ? { parentKey: parent.key } : {}),
+        ...(session.completion ? { completion: session.completion } : {}),
       });
     };
     const addAnchors = (parentId: string | undefined) => {
