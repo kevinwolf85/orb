@@ -1,0 +1,40 @@
+.constellation-scene {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 76dvh);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.constellation-session {
+  position: absolute;
+  left: var(--cx);
+  top: var(--cy);
+  width: 52%;
+  margin: 0;
+  min-width: 0;
+  transform: translate(-50%, -50%) scale(var(--cs));
+  opacity: var(--co);
+  filter: brightness(var(--cb));
+  z-index: var(--cz);
+  will-change: transform, opacity, filter;
+}
+
+.constellation-session .orb { width: 100%; margin-inline: auto; }
+
+.constellation-fallback { width: 100%; display: grid; place-items: center; animation: constellation-fallback-in 280ms ease-out both; }
+.constellation-still .constellation-fallback { animation: none; }
+
+@keyframes constellation-fallback-in {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .constellation-fallback { animation: none; }
+}
+
+@media (max-width: 780px) {
+  .constellation-scene { width: min(100%, 78svh); }
+}
