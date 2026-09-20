@@ -28,6 +28,8 @@ SOFTWARE.
 
 The Jarvis style uses `jarvis-ai-web-animation` from https://github.com/cyber1443/jarvis-ai-orb-web-animation.
 
+Orb's build removes Jarvis's exterior halo and decorative rings while retaining its internal sphere animation.
+
 MIT License
 
 Copyright (c) 2026 cyber1443

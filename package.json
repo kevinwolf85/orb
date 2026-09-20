@@ -1,6 +1,6 @@
 {
   "name": "@kevinwolf85/orb",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "An expressive browser companion for coding agents, powered by MCP and lifecycle hooks.",
   "type": "module",
   "license": "MIT",
@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "jarvis-ai-web-animation": "^0.1.2",
+    "jarvis-ai-web-animation": "0.1.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
